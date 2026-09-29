@@ -18,6 +18,12 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # Compose's dotenv parser strips, so SERVER_ADDRESS="tak.example.com" would be
 # handed to openssl and ffmpeg with the quotes still on it.
 SERVER_ADDRESS=$("$SCRIPT_DIR/scripts/env-get.sh" "$SCRIPT_DIR/.env" SERVER_ADDRESS)
+
+# Viewer credential goes into the CoT for TAK clients; publisher credential
+# is for this script's own test push. Publishing is off by default — see
+# MEDIAMTX_PUBLISH_IPS in .env.example.
+VIEWER_PASSWORD=$("$SCRIPT_DIR/scripts/env-get.sh" "$SCRIPT_DIR/.env" MEDIAMTX_VIEWER_PASSWORD)
+PUBLISHER_PASSWORD=$("$SCRIPT_DIR/scripts/env-get.sh" "$SCRIPT_DIR/.env" MEDIAMTX_PUBLISHER_PASSWORD)
 CERT_DIR="$SCRIPT_DIR/tak/certs/files"
 CERT_NAME="svc_fasttakapi"  # auto-bootstrapped admin cert; reaches all clients
 CERT_PASS="atakatak" # TAK Server default cert password
@@ -119,6 +125,11 @@ if [ -z "$SERVER_ADDRESS" ]; then
     exit 1
 fi
 
+if [ -z "$VIEWER_PASSWORD" ]; then
+    echo "ERROR: MEDIAMTX_VIEWER_PASSWORD not set in .env — run ./scripts/ensure-secrets.sh .env" >&2
+    exit 1
+fi
+
 CERT_P12="$CERT_DIR/${CERT_NAME}.p12"
 CA_PEM="$CERT_DIR/ca.pem"
 
@@ -131,7 +142,9 @@ fi
 # Extract cert and key to temp files
 TMPDIR=$(mktemp -d)
 cleanup() {
-    [ -n "$FFPID" ] && kill "$FFPID" 2>/dev/null
+    if [ -n "$FFPID" ]; then
+        kill "$FFPID" 2>/dev/null || true
+    fi
     rm -rf "$TMPDIR"
 }
 trap cleanup EXIT INT TERM
@@ -154,6 +167,11 @@ if [ -n "$VIDEO_FILE" ]; then
 fi
 
 if [ "$TEST_STREAM" = "true" ]; then
+    if [ -z "$PUBLISHER_PASSWORD" ]; then
+        echo "ERROR: MEDIAMTX_PUBLISHER_PASSWORD not set in .env — run ./scripts/ensure-secrets.sh .env, or use --no-stream" >&2
+        exit 1
+    fi
+
     if ! command -v ffmpeg >/dev/null 2>&1; then
         echo "ERROR: ffmpeg not found. Install it or use --no-stream" >&2
         exit 1
@@ -161,13 +179,13 @@ if [ "$TEST_STREAM" = "true" ]; then
 
     # Build the ingest URL based on protocol
     case "$PROTOCOL" in
-        rtsp)  INGEST_URL="rtsp://localhost:8554/${STREAM_PATH}"
+        rtsp)  INGEST_URL="rtsp://publisher:${PUBLISHER_PASSWORD}@localhost:8554/${STREAM_PATH}"
                FFMPEG_FORMAT="rtsp"
                INGEST_LABEL="RTSP :8554" ;;
-        rtmp)  INGEST_URL="rtmp://localhost:1935/${STREAM_PATH}"
+        rtmp)  INGEST_URL="rtmp://localhost:1935/${STREAM_PATH}?user=publisher&pass=${PUBLISHER_PASSWORD}"
                FFMPEG_FORMAT="flv"
                INGEST_LABEL="RTMP :1935" ;;
-        http)  INGEST_URL="rtmp://localhost:1935/${STREAM_PATH}"
+        http)  INGEST_URL="rtmp://localhost:1935/${STREAM_PATH}?user=publisher&pass=${PUBLISHER_PASSWORD}"
                FFMPEG_FORMAT="flv"
                INGEST_LABEL="RTMP :1935 (HLS served on :8888)" ;;
         *)     echo "ERROR: Unsupported protocol '$PROTOCOL' for streaming" >&2; exit 1 ;;
@@ -201,7 +219,9 @@ if [ "$TEST_STREAM" = "true" ]; then
     # Wait for MediaMTX to pick up the stream
     sleep 3
     if ! kill -0 "$FFPID" 2>/dev/null; then
-        echo "ERROR: ffmpeg exited — is MediaMTX accepting ${INGEST_LABEL}?" >&2
+        echo "ERROR: ffmpeg exited — MediaMTX refused ${INGEST_LABEL}." >&2
+        echo "       Publishing is off by default. Set MEDIAMTX_PUBLISH_IPS in .env" >&2
+        echo "       (e.g. 0.0.0.0/0) and run: docker compose up -d mediamtx" >&2
         exit 1
     fi
     echo "Streaming ${VIDEO_FILE:-test pattern} via ${INGEST_LABEL} (ffmpeg PID $FFPID)"
@@ -238,7 +258,7 @@ hideFov=\"true\" fovRed=\"1\" fovGreen=\"1\" fovBlue=\"0\" fovAlpha=\"0.3\"/>\
 <__video uid=\"${VIDEO_UID}\">\
 <ConnectionEntry networkTimeout=\"12000\" uid=\"${VIDEO_UID}\" \
 path=\"${STREAM_URL_PATH}\" protocol=\"${PROTOCOL}\" bufferTime=\"-1\" \
-address=\"${SERVER_ADDRESS}\" port=\"${PORT}\" roverPort=\"-1\" rtspReliable=\"1\" \
+address=\"viewer:${VIEWER_PASSWORD}@${SERVER_ADDRESS}\" port=\"${PORT}\" roverPort=\"-1\" rtspReliable=\"1\" \
 ignoreEmbeddedKLV=\"false\" alias=\"${CALLSIGN}\"/>\
 </__video>\
 <remarks>Video feed via FastTAK MediaMTX</remarks>\
@@ -264,7 +284,7 @@ ssock.close()
 
 echo "Sent video CoT to TAK Server:"
 echo "  Callsign: ${CALLSIGN}"
-echo "  Stream:   ${PROTOCOL}://${SERVER_ADDRESS}:${PORT}${STREAM_URL_PATH}"
+echo "  Stream:   ${PROTOCOL}://viewer:***@${SERVER_ADDRESS}:${PORT}${STREAM_URL_PATH}"
 echo "  Position: ${LAT}, ${LON}"
 echo "  Stale:    ${STALE_MINUTES} minutes"
 echo "  UID:      ${FEED_UID}"
