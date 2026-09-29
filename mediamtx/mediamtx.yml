@@ -4,7 +4,7 @@
 # Logging
 logLevel: info
 
-# API — used by Node-RED to register video proxy paths
+# API — used by Node-RED to register video proxy paths (authenticated as the api user)
 api: yes
 apiAddress: :9997
 
@@ -12,6 +12,13 @@ apiAddress: :9997
 rtsp: yes
 rtspAddress: :8554
 rtspTransports: [tcp]
+
+# Digest keeps the password off the wire. MediaMTX's reference config calls it
+# "compatibility only": it does not stop an active man-in-the-middle, who gets
+# the video anyway. Against a passive observer and generated 128-bit passwords
+# it does keep the credential from being captured. RTSPS replaces it (#38).
+# Digest only works with internal users, and forbids hashed passwords.
+rtspAuthMethods: [digest]
 
 # RTMP — video ingress from OBS, encoders, drones
 rtmp: yes
@@ -21,9 +28,9 @@ rtmpAddress: :1935
 hls: yes
 hlsAddress: :8888
 
-# WebRTC
-webrtc: yes
-webrtcAddress: :8889
+# WebRTC — unused and unpublished. It also accepts publishing (WHIP), so it
+# stays off until something needs it.
+webrtc: no
 
 # SRT — unused and unpublished. Phase 2 (#38) may enable it for UAS Tool.
 srt: no
@@ -36,26 +43,33 @@ readTimeout: 30s
 writeTimeout: 10s
 writeQueueSize: 512
 
-# Authentication — allow publish/read from any IP, API access from Docker network
+# Authentication — no anonymous access (DD-056).
+#
+# docker-compose.yml sets each entry's password and allowed IPs through
+# MTX_AUTHINTERNALUSERS_<index>_PASS / _IPS. The index is the contract:
+#   0 = viewer, 1 = publisher, 2 = api. Do not reorder or insert above them.
+#
+# The pass and ips below are placeholders Compose always replaces. The
+# loopback-only ips make every entry unusable if the overrides are missing:
+# this file on its own lets nobody in. Do not use a hashed pass here — with
+# Digest enabled, MediaMTX refuses to start.
 authInternalUsers:
-  # Anyone can publish/read/playback streams
-  - user: any
-    pass:
-    ips: []
+  - user: viewer
+    pass: overridden-by-compose
+    ips: ['127.0.0.1/32']
+    permissions:
+      - action: read
+      - action: playback
+  - user: publisher
+    pass: overridden-by-compose
+    ips: ['127.0.0.1/32']
     permissions:
       - action: publish
-        path:
-      - action: read
-        path:
-      - action: playback
-        path:
-  # API access from any IP (internal Docker network)
-  - user: any
-    pass:
-    ips: []
+  - user: api
+    pass: overridden-by-compose
+    ips: ['127.0.0.1/32']
     permissions:
       - action: api
-      - action: metrics
 
 # Default path settings — applied to all paths including dynamically created ones
 pathDefaults:
@@ -68,8 +82,9 @@ pathDefaults:
   recordPartDuration: 1s    # makes partial segments playable mid-recording
   recordSegmentDuration: 10m
 
-# Wildcard path — allows any publish/read path without pre-registration.
-# DroneSense proxy paths are also added dynamically via the API by Node-RED.
+# Wildcard path — any source may publish to any path name; who may publish or
+# read is decided by authInternalUsers. Node-RED flows can also add paths that
+# MediaMTX pulls itself, through the API (the DroneSense flow does this).
 paths:
   all_others:
     name: ""

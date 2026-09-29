@@ -332,6 +332,17 @@ services:
       # Default off; opt in via .env (MEDIAMTX_RECORD=true).
       MTX_PATHDEFAULTS_RECORD: ${MEDIAMTX_RECORD:-false}
       MTX_PATHDEFAULTS_RECORDDELETEAFTER: ${MEDIAMTX_RECORD_RETENTION:-168h}
+      # Credentials (DD-056). Index = position in mediamtx.yml's
+      # authInternalUsers: 0 viewer, 1 publisher, 2 api. `:?` stops
+      # `docker compose up` when a password is unset or empty.
+      MTX_AUTHINTERNALUSERS_0_PASS: ${MEDIAMTX_VIEWER_PASSWORD:?MEDIAMTX_VIEWER_PASSWORD is unset or empty - run ./scripts/ensure-secrets.sh .env}
+      MTX_AUTHINTERNALUSERS_0_IPS: "0.0.0.0/0,::/0"
+      MTX_AUTHINTERNALUSERS_1_PASS: ${MEDIAMTX_PUBLISHER_PASSWORD:?MEDIAMTX_PUBLISHER_PASSWORD is unset or empty - run ./scripts/ensure-secrets.sh .env}
+      # Publishing off unless the operator lists source networks.
+      MTX_AUTHINTERNALUSERS_1_IPS: ${MEDIAMTX_PUBLISH_IPS:-127.0.0.1/32}
+      MTX_AUTHINTERNALUSERS_2_PASS: ${MEDIAMTX_API_PASSWORD:?MEDIAMTX_API_PASSWORD is unset or empty - run ./scripts/ensure-secrets.sh .env}
+      # 9997 is not published: "any" here means any container on the network.
+      MTX_AUTHINTERNALUSERS_2_IPS: "0.0.0.0/0,::/0"
     volumes:
       - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
       - ${MEDIAMTX_RECORDINGS_DIR:-./recordings}:/recordings
