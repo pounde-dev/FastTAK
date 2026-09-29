@@ -292,7 +292,7 @@ wheels = [
 
 [[package]]
 name = "fastak-dev"
-version = "0.30.3"
+version = "0.31.0"
 source = { virtual = "." }
 dependencies = [
     { name = "apscheduler" },
