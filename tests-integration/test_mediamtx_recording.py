@@ -41,8 +41,24 @@ pytestmark = [
 # ---------------------------------------------------------------------------
 
 
-def _publish_test_stream(stream_name: str, duration: int = 3) -> subprocess.CompletedProcess:
-    """Publish a libavfilter test pattern to the test-stack RTSP port."""
+def _publisher_password(stack_info) -> str:
+    return subprocess.run(
+        [
+            f"{stack_info.repo_dir}/scripts/env-get.sh",
+            stack_info.env_file,
+            "MEDIAMTX_PUBLISHER_PASSWORD",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+
+def _publish_test_stream(
+    stack_info, stream_name: str, duration: int = 3
+) -> subprocess.CompletedProcess:
+    """Publish a libavfilter test pattern to the test-stack RTSP port as `publisher`."""
+    password = _publisher_password(stack_info)
     return subprocess.run(
         [
             FFMPEG,
@@ -61,7 +77,7 @@ def _publish_test_stream(stream_name: str, duration: int = 3) -> subprocess.Comp
             "zerolatency",
             "-f",
             "rtsp",
-            f"rtsp://localhost:{RTSP_PORT}/{stream_name}",
+            f"rtsp://publisher:{password}@localhost:{RTSP_PORT}/{stream_name}",
         ],
         capture_output=True,
         timeout=duration + 10,
@@ -133,7 +149,7 @@ def test_default_off_writes_no_recording(stack_info, run_id):
     recordings_dir = Path(stack_info.repo_dir) / "recordings" / stream_name
     _purge_recording_dir(recordings_dir)
 
-    publish = _publish_test_stream(stream_name)
+    publish = _publish_test_stream(stack_info, stream_name)
     assert publish.returncode == 0, (
         f"ffmpeg publish failed: {publish.stderr.decode(errors='replace')[-500:]}"
     )
@@ -162,7 +178,7 @@ def test_recording_on_writes_valid_mp4(stack_info, compose_cmd, compose_env, run
     try:
         _recreate_mediamtx(compose_cmd, compose_env)
 
-        publish = _publish_test_stream(stream_name)
+        publish = _publish_test_stream(stack_info, stream_name)
         assert publish.returncode == 0, (
             f"ffmpeg publish failed: {publish.stderr.decode(errors='replace')[-500:]}"
         )
