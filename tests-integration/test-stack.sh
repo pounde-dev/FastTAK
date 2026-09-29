@@ -79,6 +79,9 @@ cmd_up() {
 
   sed -i.bak "s/^SERVER_ADDRESS=.*/SERVER_ADDRESS=test.fastak.local/" "${test_dir}/.env"
   sed -i.bak "s/^DEPLOY_MODE=.*/DEPLOY_MODE=direct/" "${test_dir}/.env"
+  # Tests publish from the host; the default (publishing off) would refuse
+  # them. test_mediamtx_auth.py checks the default separately.
+  echo "MEDIAMTX_PUBLISH_IPS=0.0.0.0/0" >> "${test_dir}/.env"
   rm -f "${test_dir}/.env.bak"
 
   # Copied into TAK_HOST_PATH so the single volume mount picks them up —
