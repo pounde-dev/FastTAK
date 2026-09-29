@@ -138,7 +138,7 @@ Additional optional variables (SMTP relay, LDAP base DN, admin email) are docume
 | ------------------ | -------- | ----------------------------- |
 | `TAK_VERSION`      | `5.8-RELEASE-65` | TAK Server Docker image tag, set by `setup.sh` |
 | `LLDAP_VERSION`    | `v0.6.1` | LLDAP lightweight LDAP server |
-| `MEDIAMTX_VERSION` | `1.15.5` | MediaMTX video streaming      |
+| `MEDIAMTX_VERSION` | `1.21.1` | MediaMTX video streaming      |
 | `NODERED_VERSION`  | `4.1`    | Node-RED                      |
 
 ### Port assignments (direct mode)

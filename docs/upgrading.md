@@ -65,6 +65,17 @@ semantic versioning, and `fix:` releases will not change behaviour you depend on
 — but a service being *removed* from the stack is worth knowing about in
 advance, because of the next item.
 
+### 3. Set `MEDIAMTX_VERSION=1.21.1` (this release and later)
+
+Image pins live in your `.env`, so a new release does not change them for you.
+This release needs MediaMTX 1.21 or later; `./start.sh` refuses an older pin
+and says so. Edit `.env`:
+
+    MEDIAMTX_VERSION=1.21.1
+
+MoQ and SRT are now explicitly off. Neither port was published, so nothing
+that worked before stops working.
+
 ## What the scripts now handle for you
 
 These used to be manual steps and are no longer:
