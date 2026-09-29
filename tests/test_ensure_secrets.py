@@ -30,6 +30,9 @@ REQUIRED = {
     "APP_DB_PASSWORD": 32,
     "LDAP_BIND_PASSWORD": 32,
     "TOKENS_API_SECRET": 64,
+    "MEDIAMTX_VIEWER_PASSWORD": 32,
+    "MEDIAMTX_PUBLISHER_PASSWORD": 32,
+    "MEDIAMTX_API_PASSWORD": 32,
 }
 
 # A populated .env with every required secret already set, so tests can vary one
@@ -41,6 +44,9 @@ BASE = "\n".join(
         "APP_DB_PASSWORD=bbbb",
         "LDAP_BIND_PASSWORD=cccc",
         "TOKENS_API_SECRET=dddd",
+        "MEDIAMTX_VIEWER_PASSWORD=eeee",
+        "MEDIAMTX_PUBLISHER_PASSWORD=ffff",
+        "MEDIAMTX_API_PASSWORD=abab",
     ]
 )
 
