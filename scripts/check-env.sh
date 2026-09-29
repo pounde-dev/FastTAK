@@ -81,6 +81,7 @@ DEPLOY_MODE=$(get_env_value DEPLOY_MODE)
 WEBADMIN_PASSWORD=$(get_env_value TAK_WEBADMIN_PASSWORD)
 TOKENS_API_SECRET=$(get_env_value TOKENS_API_SECRET)
 TAK_VERSION=$(get_env_value TAK_VERSION)
+MEDIAMTX_VERSION=$(get_env_value MEDIAMTX_VERSION)
 
 # ── SERVER_ADDRESS ─────────────────────────────────────────────────────────
 if [ -z "$SERVER_ADDRESS" ] || [ "$SERVER_ADDRESS" = "tak.example.com" ]; then
@@ -207,5 +208,57 @@ Re-run ./setup.sh with a current bundle from https://tak.gov/products/tak-server
 EOF
   exit 1
 fi
+
+# ── MEDIAMTX_VERSION ───────────────────────────────────────────────────────
+# Image pins live in each deployment's .env, so a release that needs a newer
+# MediaMTX cannot reach an existing install on its own. Below 1.21 MediaMTX
+# ignores the MTX_AUTHINTERNALUSERS_* overrides docker-compose.yml relies on
+# (DD-056) and every login fails.
+MEDIAMTX_VERSION_FLOOR="1.21"
+
+# mediamtx_version_meets_floor <X.Y[.Z]> <X.Y>
+# 0 when version >= floor, 1 when below, 2 when the version cannot be parsed.
+# Integer compare on major and minor, so 1.100 sorts above 1.21.
+mediamtx_version_meets_floor() {
+  local v="$1" f="$2" v_major v_rest v_minor f_major f_minor
+  v_major="${v%%.*}"
+  [ "$v_major" = "$v" ] && return 2
+  v_rest="${v#*.}"
+  v_minor="${v_rest%%.*}"
+  case "$v_major" in ''|*[!0-9]*) return 2 ;; esac
+  case "$v_minor" in ''|*[!0-9]*) return 2 ;; esac
+  f_major="${f%%.*}"; f_minor="${f#*.}"
+
+  [ "$v_major" -gt "$f_major" ] && return 0
+  [ "$v_major" -lt "$f_major" ] && return 1
+  [ "$v_minor" -ge "$f_minor" ] && return 0
+  return 1
+}
+
+floor_rc=0
+mediamtx_version_meets_floor "$MEDIAMTX_VERSION" "$MEDIAMTX_VERSION_FLOOR" || floor_rc=$?
+case $floor_rc in
+  0) ;;
+  2)
+    cat >&2 <<EOF
+ERROR: MEDIAMTX_VERSION=$MEDIAMTX_VERSION in $ENV_FILE could not be parsed.
+
+Expected a release number such as 1.21.1 (no leading "v", not "latest").
+EOF
+    exit 1
+    ;;
+  *)
+    cat >&2 <<EOF
+ERROR: MEDIAMTX_VERSION=$MEDIAMTX_VERSION in $ENV_FILE is below $MEDIAMTX_VERSION_FLOOR.
+
+This release configures MediaMTX credentials through environment overrides
+that older versions ignore; video would fail for every client.
+
+Set it in $ENV_FILE:
+  MEDIAMTX_VERSION=1.21.1
+EOF
+    exit 1
+    ;;
+esac
 
 exit 0

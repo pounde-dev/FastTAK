@@ -5,6 +5,7 @@ Covers the rules enforced by scripts/check-env.sh:
 - .env must exist at the given path
 - SERVER_ADDRESS must be set and not the placeholder
 - TAK_WEBADMIN_PASSWORD must not be the documented default (empty is permitted)
+- MEDIAMTX_VERSION must be parseable and at least 1.21
 
 Tests parametrize over DEPLOY_MODE to verify the rules are mode-independent.
 """
@@ -23,6 +24,7 @@ MODES = ["direct", "subdomain", ""]  # "" covers an unset DEPLOY_MODE
 
 VALID_TOKENS_SECRET = "0" * 64
 VALID_TAK_VERSION = "5.8-RELEASE-65"
+VALID_MEDIAMTX_VERSION = "1.21.1"
 
 
 def _run(env_content: str, tmp_path: Path) -> subprocess.CompletedProcess:
@@ -37,6 +39,8 @@ def _run(env_content: str, tmp_path: Path) -> subprocess.CompletedProcess:
         env_content = f"{env_content}TOKENS_API_SECRET={VALID_TOKENS_SECRET}\n"
     if "TAK_VERSION" not in env_content:
         env_content = f"{env_content}TAK_VERSION={VALID_TAK_VERSION}\n"
+    if "MEDIAMTX_VERSION" not in env_content:
+        env_content = f"{env_content}MEDIAMTX_VERSION={VALID_MEDIAMTX_VERSION}\n"
     env_file = tmp_path / ".env"
     env_file.write_text(env_content)
     return subprocess.run(
@@ -426,3 +430,27 @@ def test_unknown_deploy_mode_fails_and_names_the_value(value, tmp_path):
     assert value in result.stderr
     assert "deploy_mode" in result.stderr.lower()
     assert "direct" in result.stderr and "subdomain" in result.stderr
+
+
+BASE_OK = "SERVER_ADDRESS=tak.example.org\nDEPLOY_MODE=direct\nTAK_WEBADMIN_PASSWORD=secret-pw\n"
+
+
+@pytest.mark.parametrize("version", ["1.15.5", "1.20.1", "0.9.0"])
+def test_mediamtx_below_floor_fails(tmp_path, version):
+    result = _run(f"{BASE_OK}MEDIAMTX_VERSION={version}\n", tmp_path)
+    assert result.returncode == 1
+    assert "MEDIAMTX_VERSION" in result.stderr
+    assert "1.21" in result.stderr
+
+
+@pytest.mark.parametrize("version", ["1.21.1", "1.21.0", "1.22.0", "2.0.0", "1.21"])
+def test_mediamtx_at_or_above_floor_passes(tmp_path, version):
+    result = _run(f"{BASE_OK}MEDIAMTX_VERSION={version}\n", tmp_path)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("version", ["", "latest", "v1.21.1", "1"])
+def test_mediamtx_unparseable_fails(tmp_path, version):
+    result = _run(f"{BASE_OK}MEDIAMTX_VERSION={version}\n", tmp_path)
+    assert result.returncode == 1
+    assert "MEDIAMTX_VERSION" in result.stderr

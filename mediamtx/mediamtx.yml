@@ -25,6 +25,12 @@ hlsAddress: :8888
 webrtc: yes
 webrtcAddress: :8889
 
+# SRT — unused and unpublished. Phase 2 (#38) may enable it for UAS Tool.
+srt: no
+
+# MoQ (Media over QUIC) — enabled by default since 1.21; unused.
+moq: no
+
 # Timeouts — 30s accommodates intermittent mobile streams
 readTimeout: 30s
 writeTimeout: 10s
