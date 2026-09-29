@@ -379,6 +379,11 @@ services:
       TAK_HOST: tak-server
       TAK_PORT: "8089"
       SERVER_ADDRESS: ${SERVER_ADDRESS}
+      # For flows that announce video. The viewer password goes into the
+      # video URL of the CoT a flow sends to TAK clients; the API password
+      # lets a flow manage MediaMTX paths (the DroneSense flow uses both).
+      MEDIAMTX_VIEWER_PASSWORD: ${MEDIAMTX_VIEWER_PASSWORD:?MEDIAMTX_VIEWER_PASSWORD is unset or empty - run ./scripts/ensure-secrets.sh .env}
+      MEDIAMTX_API_PASSWORD: ${MEDIAMTX_API_PASSWORD:?MEDIAMTX_API_PASSWORD is unset or empty - run ./scripts/ensure-secrets.sh .env}
     volumes:
       - nodered-data:/data
       - ./nodered/flows.json:/opt/fastak/flows.json:ro
