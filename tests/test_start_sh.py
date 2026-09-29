@@ -122,6 +122,12 @@ def deployment(tmp_path):
     env = (REPO / ".env.example").read_text()
     env = env.replace("SERVER_ADDRESS=tak.example.com", "SERVER_ADDRESS=localhost")
     env = env.replace("TOKENS_API_SECRET=", "TOKENS_API_SECRET=" + "0" * 64)
+    for key in (
+        "MEDIAMTX_VIEWER_PASSWORD",
+        "MEDIAMTX_PUBLISHER_PASSWORD",
+        "MEDIAMTX_API_PASSWORD",
+    ):
+        env = env.replace(f"{key}=", f"{key}=" + "a1" * 16)
     (tmp_path / ".env").write_text(env)
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()

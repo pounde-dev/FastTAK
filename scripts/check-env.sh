@@ -167,6 +167,37 @@ EOF
   exit 1
 fi
 
+# ── MediaMTX credentials ───────────────────────────────────────────────────
+# MediaMTX has no anonymous access (DD-056); docker-compose.yml refuses to
+# start without these. The viewer password is embedded in RTSP URLs inside
+# CoT, where "@", ":" or "/" would break parsing, so only letters and digits.
+for key in MEDIAMTX_VIEWER_PASSWORD MEDIAMTX_PUBLISHER_PASSWORD MEDIAMTX_API_PASSWORD; do
+  value=$(get_env_value "$key")
+  if [ -z "$value" ]; then
+    cat >&2 <<EOF
+ERROR: $key is unset or empty in $ENV_FILE.
+
+MediaMTX has no anonymous access, so the stack will not start without it.
+
+Generate it:
+  ./scripts/ensure-secrets.sh $ENV_FILE
+EOF
+    exit 1
+  fi
+  case "$value" in
+    *[!A-Za-z0-9]*)
+      cat >&2 <<EOF
+ERROR: $key in $ENV_FILE must be letters and digits only.
+
+It is embedded in RTSP URLs, where characters like @ : / break parsing.
+Clear it and regenerate:
+  ./scripts/ensure-secrets.sh $ENV_FILE
+EOF
+      exit 1
+      ;;
+  esac
+done
+
 # ── TAK_VERSION ────────────────────────────────────────────────────────────
 # setup.sh refuses a below-floor release bundle, but .env can be edited by
 # hand. Compose interpolates this into the image tags, so an empty value

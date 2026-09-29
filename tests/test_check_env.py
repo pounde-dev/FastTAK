@@ -25,6 +25,11 @@ MODES = ["direct", "subdomain", ""]  # "" covers an unset DEPLOY_MODE
 VALID_TOKENS_SECRET = "0" * 64
 VALID_TAK_VERSION = "5.8-RELEASE-65"
 VALID_MEDIAMTX_VERSION = "1.21.1"
+MEDIAMTX_KEYS = (
+    "MEDIAMTX_VIEWER_PASSWORD",
+    "MEDIAMTX_PUBLISHER_PASSWORD",
+    "MEDIAMTX_API_PASSWORD",
+)
 
 
 def _run(env_content: str, tmp_path: Path) -> subprocess.CompletedProcess:
@@ -41,6 +46,9 @@ def _run(env_content: str, tmp_path: Path) -> subprocess.CompletedProcess:
         env_content = f"{env_content}TAK_VERSION={VALID_TAK_VERSION}\n"
     if "MEDIAMTX_VERSION" not in env_content:
         env_content = f"{env_content}MEDIAMTX_VERSION={VALID_MEDIAMTX_VERSION}\n"
+    for key in MEDIAMTX_KEYS:
+        if key not in env_content:
+            env_content = f"{env_content}{key}={'a1' * 16}\n"
     env_file = tmp_path / ".env"
     env_file.write_text(env_content)
     return subprocess.run(
@@ -454,3 +462,26 @@ def test_mediamtx_unparseable_fails(tmp_path, version):
     result = _run(f"{BASE_OK}MEDIAMTX_VERSION={version}\n", tmp_path)
     assert result.returncode == 1
     assert "MEDIAMTX_VERSION" in result.stderr
+
+
+# ── MediaMTX credentials ───────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("key", MEDIAMTX_KEYS)
+def test_empty_mediamtx_password_fails(tmp_path, key):
+    result = _run(f"{BASE_OK}{key}=\n", tmp_path)
+    assert result.returncode == 1
+    assert key in result.stderr
+    assert "ensure-secrets.sh" in result.stderr
+
+
+@pytest.mark.parametrize("value", ["pa@ss", "pa:ss", "pa ss", "pa/ss"])
+def test_mediamtx_password_must_be_url_safe(tmp_path, value):
+    result = _run(f"{BASE_OK}MEDIAMTX_VIEWER_PASSWORD={value}\n", tmp_path)
+    assert result.returncode == 1
+    assert "letters and digits" in result.stderr
+
+
+def test_generated_mediamtx_passwords_pass(tmp_path):
+    result = _run(BASE_OK, tmp_path)
+    assert result.returncode == 0, result.stderr
