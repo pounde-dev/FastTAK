@@ -379,6 +379,10 @@ services:
       TAK_HOST: tak-server
       TAK_PORT: "8089"
       SERVER_ADDRESS: ${SERVER_ADDRESS}
+      # DroneSense flow: the viewer password is written into CoT for TAK
+      # clients; the API password authenticates proxy-path reconcile.
+      MEDIAMTX_VIEWER_PASSWORD: ${MEDIAMTX_VIEWER_PASSWORD:?MEDIAMTX_VIEWER_PASSWORD is unset or empty - run ./scripts/ensure-secrets.sh .env}
+      MEDIAMTX_API_PASSWORD: ${MEDIAMTX_API_PASSWORD:?MEDIAMTX_API_PASSWORD is unset or empty - run ./scripts/ensure-secrets.sh .env}
     volumes:
       - nodered-data:/data
       - ./nodered/flows.json:/opt/fastak/flows.json:ro
