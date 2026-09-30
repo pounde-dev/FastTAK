@@ -126,22 +126,28 @@ Create groups in the Monitor dashboard on the **Users/Groups** page.
 
 ## Step 8: Stream video
 
+MediaMTX admits nobody anonymously, and publishing is off by default. See [MediaMTX access](configuration.md#mediamtx-access) for the passwords in `.env`.
+
 ### Send a stream
+
+First set `MEDIAMTX_PUBLISH_IPS` in `.env` to the addresses you will publish from, then run `docker compose up -d mediamtx`.
 
 **From OBS or an encoder:**
 
 - Server: `rtmp://<server-ip>:1935/live`
-- Stream key: any name (e.g., `drone1`)
+- Stream key: `<stream-name>?user=publisher&pass=<MEDIAMTX_PUBLISHER_PASSWORD>`
 
 **From an RTSP source (camera, drone):**
 
-- Push to: `rtsp://<server-ip>:8554/live/<stream-name>`
+- Push to: `rtsp://publisher:<MEDIAMTX_PUBLISHER_PASSWORD>@<server-ip>:8554/live/<stream-name>`
 
 ### View a stream
 
+Sign in as `viewer` with `MEDIAMTX_VIEWER_PASSWORD`.
+
 - **HLS (direct mode):** `https://<server-ip>:8888/live/<stream-name>` — served through Caddy with its internal TLS cert; MediaMTX's port 8888 is not published to the host directly.
 - **HLS (subdomain mode):** `https://stream.<FQDN>/live/<stream-name>`
-- **In TAK:** share the RTSP URL as a CoT video feed
+- **In TAK:** share `rtsp://viewer:<MEDIAMTX_VIEWER_PASSWORD>@<server-ip>:8554/live/<stream-name>` as a CoT video feed
 
 ## Clean teardown
 

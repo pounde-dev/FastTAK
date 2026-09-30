@@ -430,7 +430,11 @@ services:
 
 Find the Tailscale IP via `tailscale ip -4`. Restart the stack with
 `docker compose up -d mediamtx`. Tailscale-connected ATAK clients can then
-stream via `rtsp://<tailscale-hostname>:8554/...`.
+watch via `rtsp://viewer:<MEDIAMTX_VIEWER_PASSWORD>@<tailscale-hostname>:8554/...`.
+
+To publish over Tailscale too, set `MEDIAMTX_PUBLISH_IPS=100.64.0.0/10` in
+`.env` and use the `publisher` user; publishing is off by default. See
+[MediaMTX access](configuration.md#mediamtx-access).
 
 Skip this step if you don't need video and just want SSH over Tailscale.
 

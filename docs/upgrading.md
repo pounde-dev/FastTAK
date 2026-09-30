@@ -76,6 +76,22 @@ and says so. Edit `.env`:
 MoQ and SRT are now explicitly off. Neither port was published, so nothing
 that worked before stops working.
 
+### 4. MediaMTX requires credentials (this release and later)
+
+- `./start.sh` adds `MEDIAMTX_VIEWER_PASSWORD`, `MEDIAMTX_PUBLISHER_PASSWORD`
+  and `MEDIAMTX_API_PASSWORD` to your `.env`.
+- Re-import the DroneSense flow (see its page, "Upgrading from an earlier
+  release"). Until you do, its video returns 401.
+- Anything that publishes into MediaMTX from outside the stack now needs
+  `MEDIAMTX_PUBLISH_IPS` and the publisher password. Browsers opening HLS
+  are asked for the viewer password.
+- If you hid the MediaMTX ports in an override because they had no
+  authentication, leave them hidden until the Node-RED editor is limited to a
+  group ([#149](https://github.com/pounde/FastTAK/issues/149)). Until then, any
+  LDAP user can open the editor, read the MediaMTX API password and turn
+  anonymous access back on. After that you can publish 8554 again for viewing;
+  publishing stays off.
+
 ## What the scripts now handle for you
 
 These used to be manual steps and are no longer:
