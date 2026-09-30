@@ -111,6 +111,9 @@ to the new group yourself.
     check) and which can issue arbitrary HTTP requests by design. Keeping the
     monitor's container port unpublished is necessary but not sufficient.
 
+    Node-RED's environment also holds the MediaMTX API password, so the same
+    access amounts to MediaMTX admin.
+
     Closing this needs either a shared secret injected by Caddy and required by
     the monitor, or network isolation so the monitor is unreachable from the
     services an ordinary user can drive. Tracked in the issue tracker.

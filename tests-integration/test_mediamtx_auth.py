@@ -283,7 +283,14 @@ def test_rotating_the_viewer_password_is_edit_and_up(
 
 
 def test_config_file_alone_admits_nobody(stack_info):
-    """Without Compose's overrides, the shipped file's entries are unusable."""
+    """Without Compose's overrides, the shipped file's entries are unusable.
+
+    The refusal comes from the file's loopback-only `ips` (127.0.0.1/32,
+    MediaMTX's own loopback), not from the password: `overridden-by-compose`
+    is public in the repo by design, and the probe uses it as a remote client
+    would. The probe path has no stream, so a successful auth would yield 404,
+    which makes 401 discriminating.
+    """
     version = mediamtx_secret(stack_info, "MEDIAMTX_VERSION")
     name = f"mtx-failclosed-{int(time.time())}"
     subprocess.run(

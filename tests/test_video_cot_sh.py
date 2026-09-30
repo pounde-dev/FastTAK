@@ -42,13 +42,20 @@ def sandbox(tmp_path):
         stub.chmod(0o755)
     logs = tmp_path / "logs"
     logs.mkdir()
+    (tmp_path / "tmp").mkdir()
     return root, bin_dir, logs
 
 
 def _run(sandbox, env_lines: str, *args):
     root, bin_dir, logs = sandbox
     (root / ".env").write_text("SERVER_ADDRESS=tak.example.org\n" + env_lines)
-    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "STUB_LOG": str(logs), "HOME": str(root)}
+    env = {
+        "PATH": f"{bin_dir}:/usr/bin:/bin",
+        "STUB_LOG": str(logs),
+        "HOME": str(root),
+        # mktemp -d lands here, so leaked cert/key material is observable.
+        "TMPDIR": str(logs.parent / "tmp"),
+    }
     result = subprocess.run(
         ["/bin/sh", str(root / "video-cot.sh"), *args],
         capture_output=True,
@@ -90,6 +97,23 @@ def test_passwords_are_not_printed(sandbox):
     result, _ = _run(sandbox, CREDS)
     assert "viewpw1" not in result.stdout
     assert "pubpw1" not in result.stdout
+    assert "viewpw1" not in result.stderr
+    assert "pubpw1" not in result.stderr
+
+
+def test_temp_dir_is_removed_after_a_normal_run(sandbox):
+    result, logs = _run(sandbox, CREDS)
+    assert result.returncode == 0, result.stderr
+    assert list((logs.parent / "tmp").iterdir()) == []
+
+
+def test_temp_dir_is_removed_when_ffmpeg_exits_early(sandbox):
+    _, bin_dir, logs = sandbox
+    (bin_dir / "ffmpeg").write_text("#!/bin/sh\nexit 1\n")
+    result, _ = _run(sandbox, CREDS)
+    assert result.returncode != 0
+    assert "MEDIAMTX_PUBLISH_IPS" in result.stderr
+    assert list((logs.parent / "tmp").iterdir()) == []
 
 
 def test_missing_viewer_password_fails(sandbox):

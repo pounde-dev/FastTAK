@@ -87,6 +87,8 @@ def test_passwords_are_required_not_defaulted(index, key):
 
 
 def test_publishing_is_off_by_default():
+    for i in (0, 2):
+        assert MTX_ENV[f"MTX_AUTHINTERNALUSERS_{i}_IPS"] == "0.0.0.0/0,::/0"
     assert MTX_ENV["MTX_AUTHINTERNALUSERS_1_IPS"] == "${MEDIAMTX_PUBLISH_IPS:-127.0.0.1/32}"
 
 

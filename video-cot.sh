@@ -70,6 +70,9 @@ Options:
   --no-stream              Skip ffmpeg — only send CoT (stream must exist)
   -h, --help               Show this help
 
+Note: only RTSP markers have been validated with credentials in TAK clients
+(RTMP/HLS markers carry viewer:pw@ in the address but are unverified).
+
 Examples:
   ./video-cot.sh                                           # Full test (defaults)
   ./video-cot.sh --video /path/to/video.mp4                # Stream a file
@@ -219,9 +222,10 @@ if [ "$TEST_STREAM" = "true" ]; then
     # Wait for MediaMTX to pick up the stream
     sleep 3
     if ! kill -0 "$FFPID" 2>/dev/null; then
-        echo "ERROR: ffmpeg exited — MediaMTX refused ${INGEST_LABEL}." >&2
-        echo "       Publishing is off by default. Set MEDIAMTX_PUBLISH_IPS in .env" >&2
-        echo "       (e.g. 0.0.0.0/0) and run: docker compose up -d mediamtx" >&2
+        echo "ERROR: ffmpeg exited. If MediaMTX refused the publish:" >&2
+        echo "       publishing is off by default. MEDIAMTX_PUBLISH_IPS in .env must include" >&2
+        echo "       the address MediaMTX sees for this host (Docker Desktop: its VM gateway," >&2
+        echo "       e.g. 192.168.65.1/32; Linux: the compose network gateway), then: just up" >&2
         exit 1
     fi
     echo "Streaming ${VIDEO_FILE:-test pattern} via ${INGEST_LABEL} (ffmpeg PID $FFPID)"
