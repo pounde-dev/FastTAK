@@ -4,6 +4,8 @@ FastTAK can record every video stream that flows through MediaMTX — NodeRed fe
 
 Recording is **off by default**. Enable it with two lines in `.env`.
 
+MediaMTX requires credentials: publish as `publisher:<password>@`, play as `viewer:<password>@` (see [MediaMTX access](configuration.md#mediamtx-access)). Publishing from outside the stack is off until `MEDIAMTX_PUBLISH_IPS` is set.
+
 ## Quick Start
 
 ```bash
@@ -70,7 +72,7 @@ A 10-minute 1080p segment is ~100–200 MB. A 30-second stream produces a single
 
 ## Watching while recording
 
-The live RTSP feed is unaffected by recording — clients connect to `rtsp://<server>:8554/<path>` exactly as they would without it. Recording is a parallel write off the same demuxed packets.
+The live RTSP feed is unaffected by recording — clients connect to `rtsp://viewer:<password>@<server>:8554/<path>` exactly as they would without it. Recording is a parallel write off the same demuxed packets.
 
 To replay an in-progress segment from disk, open the most recent `.mp4` in VLC:
 

@@ -2,6 +2,23 @@
 
 Significant architectural and design decisions, with reasoning. Newest first.
 
+## DD-056: MediaMTX has no anonymous access
+
+**Date:** 2026-09-28
+**Status:** Decided
+
+**Decision:** MediaMTX has three fixed internal users — `viewer` (read, playback), `publisher` (publish), `api` (control API) — and no `any` entry. Their passwords are generated into `.env` and injected by Compose through `MTX_AUTHINTERNALUSERS_<index>_PASS`/`_IPS`, with `${VAR:?}` so a missing password stops `docker compose up`. The entries in `mediamtx.yml` are loopback-only placeholders, so the file alone admits nobody. Publishing needs the publisher password **and** a source address in `MEDIAMTX_PUBLISH_IPS`, which defaults to `127.0.0.1/32` (off). RTSP uses Digest only. The DroneSense flow embeds the viewer credential in each marker's `<__video>` url and `ConnectionEntry address`.
+
+**Why:** The previous config let anyone who reached 8554/1935 watch every stream or publish into a path operators watch — an integrity attack on the map. Operators worked around it by unpublishing the ports, which broke DroneSense video. The API needs a credential too: it can rewrite `authInternalUsers` at runtime, and any container on the Docker network (Node-RED runs user-authored flows) could otherwise grant itself access.
+
+**Alternatives considered:**
+- IP-only publish restriction — rejected: the source address MediaMTX sees depends on the platform (Docker Desktop NATs every client to its VM gateway; on Linux a localhost client arrives from the bridge gateway, inside the Docker subnet).
+- Rendering `mediamtx.yml` in `init-config` — unnecessary: MediaMTX 1.21 honors env overrides for user entries (1.15.5 did not; hence the 1.21 floor in `check-env.sh`), and the image has no shell.
+- An unguessable hashed placeholder password — rejected: MediaMTX refuses hashed credentials when Digest is enabled, even if overridden.
+- A boolean publish toggle — rejected: env overrides cannot delete a user entry, and an IP list also covers the VPN-subnet case.
+- Basic instead of Digest — MediaMTX's docs call Digest "compatibility only". True against an active man-in-the-middle, who gets the video anyway; but with generated 128-bit passwords Digest keeps a passive observer from capturing a reusable credential, at no cost to the TAK clients (WinTAK and ATAK both tested). RTSPS (#38) supersedes it.
+- Client-certificate auth — not possible: MediaMTX 1.21.1 has no client-CA setting, its HTTP auth hook receives no certificate, and TAK players show no sign of presenting client certificates.
+
 ## DD-055: Status Reporters Never Fail Silent; Passes Are Quiet, Failures Explain Themselves
 
 **Decision:** Every FastTAK surface that reports health or verifies the
