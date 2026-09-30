@@ -84,7 +84,9 @@ that worked before stops working.
   release"). Until you do, its video returns 401.
 - Anything that publishes into MediaMTX from outside the stack now needs
   `MEDIAMTX_PUBLISH_IPS` and the publisher password. Browsers opening HLS
-  are asked for the viewer password.
+  are asked for the viewer password. See
+  [MediaMTX access](configuration.md#mediamtx-access) for how the passwords
+  are generated and how `MEDIAMTX_PUBLISH_IPS` works.
 - If you hid the MediaMTX ports in an override because they had no
   authentication, you can publish 8554 again for viewing; publishing stays off.
 

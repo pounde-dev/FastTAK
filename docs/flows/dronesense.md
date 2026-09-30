@@ -134,7 +134,7 @@ when a sensor starts streaming, the `<__video>` populates and a video button bec
 available on the marker.
 
 `ds: cannot read MediaMTX paths: MediaMTX API rejected credentials` means the API
-password Node-RED has does not match MediaMTX's. `docker compose up -d` recreates
+password Node-RED has does not match MediaMTX's. `just up` recreates
 both from `.env`.
 
 ## Upgrading from an earlier release
@@ -145,7 +145,7 @@ MediaMTX now requires credentials, so the flow must be re-imported:
 2. Re-import the flow: **☰** → **Import** → **Local** → **fasttak** → **dronesense** → **Replace**.
 3. Paste the keys back into **Missions** and click **Deploy**.
 
-Until then, markers carry a URL without credentials and video returns 401.
+Until then, markers carry a URL without credentials and video returns 401. Before the re-import, Node-RED also logs `ds: cannot read MediaMTX paths: list HTTP 401` every cycle, because the old flow calls the API anonymously.
 
 ## Files
 

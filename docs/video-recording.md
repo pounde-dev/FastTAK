@@ -4,7 +4,7 @@ FastTAK can record every video stream that flows through MediaMTX — NodeRed fe
 
 Recording is **off by default**. Enable it with two lines in `.env`.
 
-MediaMTX requires credentials: publish as `publisher:<password>@`, play as `viewer:<password>@` (see [MediaMTX access](configuration.md#mediamtx-access)). Publishing from outside the stack is off until `MEDIAMTX_PUBLISH_IPS` is set.
+MediaMTX requires credentials: publish as `publisher:<password>@`, play as `viewer:<password>@` (see [MediaMTX access](configuration.md#mediamtx-access)). Publishing is off by default until `MEDIAMTX_PUBLISH_IPS` is set.
 
 ## Quick Start
 

@@ -275,6 +275,9 @@ case $floor_rc in
 ERROR: MEDIAMTX_VERSION=$MEDIAMTX_VERSION in $ENV_FILE could not be parsed.
 
 Expected a release number such as 1.21.1 (no leading "v", not "latest").
+
+Set it in $ENV_FILE:
+  MEDIAMTX_VERSION=1.21.1
 EOF
     exit 1
     ;;

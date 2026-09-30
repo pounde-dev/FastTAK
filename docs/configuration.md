@@ -86,7 +86,7 @@ MediaMTX admits nobody anonymously ([DD-056](decisions.md)). Three fixed users, 
 |---|---|---|---|
 | `MEDIAMTX_VIEWER_PASSWORD` | `viewer` | Read and playback (RTSP, HLS) | TAK clients, in the video URL of each DroneSense marker |
 | `MEDIAMTX_PUBLISHER_PASSWORD` | `publisher` | Publish a stream | Whoever you allow to publish, e.g. a drone or encoder |
-| `MEDIAMTX_API_PASSWORD` | `api` | MediaMTX control API | Node-RED's DroneSense flow only |
+| `MEDIAMTX_API_PASSWORD` | `api` | MediaMTX control API | Node-RED, readable by every flow |
 
 Compose refuses to start without all three. Browsers opening HLS are prompted for the viewer credential.
 
@@ -106,7 +106,7 @@ RTSP is Digest-only. RTMP sends credentials as query parameters in plaintext, so
 
 ### Rotating a password
 
-Edit the value in `.env`, then `docker compose up -d`. That recreates `mediamtx` and `nodered`. Streams already playing continue; the next DroneSense marker (about 5 seconds) carries the new password.
+Edit the value in `.env` (or clear it to generate a new one), then run `just up`, which applies the letters-and-digits check first. That recreates `mediamtx` and `nodered`. Streams already playing continue; the next DroneSense marker (about 5 seconds) carries the new password.
 
 ### Banning repeated failures (optional)
 
