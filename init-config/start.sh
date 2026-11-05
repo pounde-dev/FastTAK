@@ -347,11 +347,17 @@ https://${SERVER_ADDRESS} {
 https://${SERVER_ADDRESS}:${NODERED_PORT} {
     tls internal
     route {
+        # Caddy before 2.11.2 let a client-sent copy of these through when
+        # ldap-proxy returned them empty, so drop them on every version.
+        request_header -Remote-User
+        request_header -Remote-Groups
         forward_auth ldap-proxy:8080 {
             uri /auth/verify
             trusted_proxies private_ranges
         }
-        reverse_proxy nodered:1880
+        reverse_proxy nodered:1880 {
+            header_up -Authorization
+        }
     }
 }
 
@@ -359,12 +365,18 @@ https://${SERVER_ADDRESS}:${NODERED_PORT} {
 https://${SERVER_ADDRESS}:${MONITOR_PORT} {
     tls internal
     route {
+        # Caddy before 2.11.2 let a client-sent copy of these through when
+        # ldap-proxy returned them empty, so drop them on every version.
+        request_header -Remote-User
+        request_header -Remote-Groups
         forward_auth ldap-proxy:8080 {
             uri /auth/verify
             copy_headers ${COPY_HEADERS}
             trusted_proxies private_ranges
         }
-        reverse_proxy monitor:8080
+        reverse_proxy monitor:8080 {
+            header_up -Authorization
+        }
     }
 }
 CADDYEOF
@@ -400,23 +412,35 @@ ${MEDIAMTX_SUBDOMAIN}.${SERVER_ADDRESS} {
 # Node-RED with forward auth
 ${NODERED_SUBDOMAIN}.${SERVER_ADDRESS} {
     route {
+        # Caddy before 2.11.2 let a client-sent copy of these through when
+        # ldap-proxy returned them empty, so drop them on every version.
+        request_header -Remote-User
+        request_header -Remote-Groups
         forward_auth ldap-proxy:8080 {
             uri /auth/verify
             trusted_proxies private_ranges
         }
-        reverse_proxy nodered:1880
+        reverse_proxy nodered:1880 {
+            header_up -Authorization
+        }
     }
 }
 
 # FastTAK Monitor with forward auth
 ${MONITOR_SUBDOMAIN}.${SERVER_ADDRESS} {
     route {
+        # Caddy before 2.11.2 let a client-sent copy of these through when
+        # ldap-proxy returned them empty, so drop them on every version.
+        request_header -Remote-User
+        request_header -Remote-Groups
         forward_auth ldap-proxy:8080 {
             uri /auth/verify
             copy_headers ${COPY_HEADERS}
             trusted_proxies private_ranges
         }
-        reverse_proxy monitor:8080
+        reverse_proxy monitor:8080 {
+            header_up -Authorization
+        }
     }
 }
 CADDYEOF
