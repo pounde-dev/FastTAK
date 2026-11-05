@@ -13,6 +13,10 @@ import (
 type AuthHandler struct {
 	proxy   *LDAPProxy
 	limiter *RateLimiter // optional; when non-nil, failed auths call RecordFailure
+
+	// groupLookup returns the user's group names. Tests replace it; everything
+	// else uses fetchUserGroups.
+	groupLookup func(username string) ([]string, error)
 }
 
 // NewAuthHandler creates a handler for /auth/verify.
@@ -22,7 +26,9 @@ type AuthHandler struct {
 // Successful auths don't consume budget — important because Caddy's
 // forward_auth hits this endpoint on every protected request.
 func NewAuthHandler(proxy *LDAPProxy, limiter *RateLimiter) *AuthHandler {
-	return &AuthHandler{proxy: proxy, limiter: limiter}
+	a := &AuthHandler{proxy: proxy, limiter: limiter}
+	a.groupLookup = a.fetchUserGroups
+	return a
 }
 
 // recordFailure records a failed auth against the rate limiter, if one is
@@ -58,6 +64,12 @@ func (a *AuthHandler) HandleVerify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	username, password := parts[0], parts[1]
+	if !isPlainUsername(username) {
+		w.Header().Set("WWW-Authenticate", `Basic realm="FastTAK"`)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		a.recordFailure(r)
+		return
+	}
 	bindDN := fmt.Sprintf("uid=%s,ou=people,%s", username, a.proxy.baseDN)
 
 	ok, err := a.proxy.HandleBind(bindDN, password)
@@ -75,14 +87,26 @@ func (a *AuthHandler) HandleVerify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch user groups from LLDAP for the Remote-Groups header
-	groups, err := a.fetchUserGroups(username)
+	groups, err := a.groupLookup(username)
 	if err != nil {
+		// Unknown groups are not the same as no groups: authorization further
+		// down the chain cannot tell them apart, so refuse the request.
 		log.Printf("failed to fetch groups for %s: %v", username, err)
+		http.Error(w, "Service unavailable", http.StatusServiceUnavailable)
+		return
 	}
 
 	w.Header().Set("Remote-User", username)
 	w.Header().Set("Remote-Groups", strings.Join(groups, ","))
 	w.WriteHeader(http.StatusOK)
+}
+
+// isPlainUsername rejects anything that would change the meaning of the bind DN
+// built from it. The bind path reads only the part before the first comma, so
+// without this "alice,junk" would be verified as alice and returned to the
+// caller as a different identity.
+func isPlainUsername(username string) bool {
+	return username != "" && !strings.ContainsAny(username, ",=+<>#;\\\"\x00\r\n")
 }
 
 // fetchUserGroups queries LLDAP for the user's group memberships.
