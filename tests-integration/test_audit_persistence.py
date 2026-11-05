@@ -10,7 +10,7 @@ import uuid
 
 import httpx
 import pytest
-from conftest import ADMIN_HEADERS, MONITOR_HOST_PORT
+from conftest import MONITOR_HOST_PORT, admin_headers
 
 pytestmark = [pytest.mark.integration, pytest.mark.timeout(60)]
 
@@ -24,9 +24,9 @@ def test_creating_a_group_writes_an_audit_row():
     r = httpx.post(
         f"{MONITOR_URL}/api/groups",
         json={"name": name},
-        # Same admin group as ADMIN_HEADERS, but a per-run actor so the audit
+        # Same admin group as admin_headers(), but a per-run actor so the audit
         # assertion below can isolate this test's row.
-        headers={**ADMIN_HEADERS, "Remote-User": actor},
+        headers={**admin_headers(), "Remote-User": actor},
         timeout=15,
     )
     assert r.status_code in (200, 201), f"create group failed: {r.status_code} {r.text}"
@@ -40,7 +40,7 @@ def test_creating_a_group_writes_an_audit_row():
     r = httpx.get(
         f"{MONITOR_URL}/api/events",
         params={"actor": actor, "limit": 10},
-        headers=ADMIN_HEADERS,
+        headers=admin_headers(),
         timeout=15,
     )
     assert r.status_code == 200
@@ -61,11 +61,11 @@ def test_creating_a_group_writes_an_audit_row():
 
     # Inline cleanup -- test stack tear-down would catch it anyway, but be tidy.
     if group_id is not None:
-        httpx.delete(f"{MONITOR_URL}/api/groups/{group_id}", headers=ADMIN_HEADERS, timeout=15)
+        httpx.delete(f"{MONITOR_URL}/api/groups/{group_id}", headers=admin_headers(), timeout=15)
 
 
 def test_csv_export_returns_text_csv():
-    r = httpx.get(f"{MONITOR_URL}/api/events.csv?limit=5", headers=ADMIN_HEADERS, timeout=15)
+    r = httpx.get(f"{MONITOR_URL}/api/events.csv?limit=5", headers=admin_headers(), timeout=15)
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/csv")
     # CSV has at least the header row

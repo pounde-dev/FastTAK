@@ -15,12 +15,14 @@ Schema (fastak_events):
 
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 from typing import Any
 
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from app import config
 from app.fastak_db import execute
 
 log = logging.getLogger(__name__)
@@ -89,17 +91,41 @@ def record_event(
         log.exception("Failed to record audit event %s/%s/%s", source, actor, action)
 
 
+PROXY_SECRET_HEADER = "X-FastTAK-Proxy-Secret"
+
+
+def request_came_through_caddy(request) -> bool:
+    """True only when the request carries the secret Caddy adds on the monitor route.
+
+    Reaching this port proves nothing: every container on the Docker network
+    can, so the identity headers mean nothing without this (DD-050, DD-059).
+    An empty configured secret never matches.
+    """
+    expected = config.settings.monitor_proxy_secret
+    sent = request.headers.get(PROXY_SECRET_HEADER, "")
+    return bool(expected) and hmac.compare_digest(sent.encode(), expected.encode())
+
+
 class AuthContextMiddleware(BaseHTTPMiddleware):
     """Pull Remote-User / Remote-Groups headers into request.state.
 
     Caddy's forward_auth flow sets these headers (ldap-proxy generates them).
-    Local dev without Caddy in front falls through to 'unknown'.
+    A request that did not come through Caddy has no identity: it falls through
+    to 'unknown' with no groups, which every admin gate refuses.
     """
 
     async def dispatch(self, request, call_next):
-        request.state.username = request.headers.get("Remote-User") or "unknown"
-        groups_header = request.headers.get("Remote-Groups", "")
-        request.state.groups = [g for g in (s.strip() for s in groups_header.split(",")) if g]
+        request.state.username = "unknown"
+        request.state.groups = []
+        if request_came_through_caddy(request):
+            request.state.username = request.headers.get("Remote-User") or "unknown"
+            groups_header = request.headers.get("Remote-Groups", "")
+            request.state.groups = [g for g in (s.strip() for s in groups_header.split(",")) if g]
+        elif "Remote-Groups" in request.headers or "Remote-User" in request.headers:
+            log.warning(
+                "Ignored identity headers from %s: no valid proxy secret",
+                request.client.host if request.client else "unknown",
+            )
         request.state.client_ip = request.client.host if request.client else None
         return await call_next(request)
 

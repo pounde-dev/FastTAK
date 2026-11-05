@@ -116,3 +116,30 @@ def test_unsafe_node_red_group_stops_startup(tmp_path, group):
 def test_every_authenticated_route_is_recorded():
     """A new forward_auth route must say who may use it, here and in authentication.md."""
     assert SECTION.count("forward_auth ldap-proxy:8080") == 4
+
+
+@pytest.mark.parametrize("mode", ["direct", "subdomain"])
+def test_monitor_route_proves_it_came_through_caddy(tmp_path, mode):
+    route = _route(tmp_path, mode, "monitor:8080")
+    assert "header_up X-FastTAK-Proxy-Secret {$MONITOR_PROXY_SECRET}" in route
+
+
+@pytest.mark.parametrize("mode", ["direct", "subdomain"])
+def test_only_the_monitor_route_gets_the_proxy_secret(tmp_path, mode):
+    caddyfile = render(tmp_path, mode)
+    assert caddyfile.count("X-FastTAK-Proxy-Secret") == 1
+
+
+def test_proxy_secret_is_never_written_to_the_caddyfile(tmp_path):
+    caddyfile = render(tmp_path, "direct", MONITOR_PROXY_SECRET="s3cret-value")
+    assert "s3cret-value" not in caddyfile
+
+
+def test_proxy_secret_reaches_only_caddy_and_the_monitor():
+    services = yaml.safe_load((REPO / "docker-compose.yml").read_text())["services"]
+    holders = {
+        name
+        for name, svc in services.items()
+        if "MONITOR_PROXY_SECRET" in svc.get("environment", {})
+    }
+    assert holders == {"caddy", "monitor"}

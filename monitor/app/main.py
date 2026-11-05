@@ -45,6 +45,13 @@ async def lifespan(app: FastAPI):
             "from the monitor (401). Set TOKENS_API_SECRET in .env and recreate "
             "the stack; ./scripts/ensure-secrets.sh .env will generate one."
         )
+    if not settings.monitor_proxy_secret:
+        log.error(
+            "MONITOR_PROXY_SECRET is empty — every signed-in user will get 403, "
+            "because the monitor cannot tell a request from Caddy from any other. "
+            "./scripts/ensure-secrets.sh .env will generate one; then recreate "
+            "the stack."
+        )
     init_config_hash()
     try:
         init_schema()

@@ -33,6 +33,7 @@ REQUIRED = {
     "MEDIAMTX_VIEWER_PASSWORD": 32,
     "MEDIAMTX_PUBLISHER_PASSWORD": 32,
     "MEDIAMTX_API_PASSWORD": 32,
+    "MONITOR_PROXY_SECRET": 64,
 }
 
 # A populated .env with every required secret already set, so tests can vary one
@@ -47,6 +48,7 @@ BASE = "\n".join(
         "MEDIAMTX_VIEWER_PASSWORD=eeee",
         "MEDIAMTX_PUBLISHER_PASSWORD=ffff",
         "MEDIAMTX_API_PASSWORD=abab",
+        "MONITOR_PROXY_SECRET=cdcd",
     ]
 )
 

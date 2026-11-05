@@ -384,6 +384,7 @@ https://${SERVER_ADDRESS}:${MONITOR_PORT} {
         }
         reverse_proxy monitor:8080 {
             header_up -Authorization
+            header_up X-FastTAK-Proxy-Secret {\$MONITOR_PROXY_SECRET}
         }
     }
 }
@@ -446,6 +447,7 @@ ${MONITOR_SUBDOMAIN}.${SERVER_ADDRESS} {
         }
         reverse_proxy monitor:8080 {
             header_up -Authorization
+            header_up X-FastTAK-Proxy-Secret {\$MONITOR_PROXY_SECRET}
         }
     }
 }
