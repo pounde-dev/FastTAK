@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 
 	ldap "github.com/go-ldap/ldap/v3"
@@ -42,7 +43,8 @@ func (a *AuthHandler) recordFailure(r *http.Request) {
 }
 
 // HandleVerify implements GET /auth/verify for Caddy forward_auth.
-// Reads Basic auth header, does LDAP bind, returns 200 or 401.
+// Reads Basic auth header, does LDAP bind, returns 200 or 401. With a ?group=
+// parameter, it also returns 403 unless the user is a member of that group.
 func (a *AuthHandler) HandleVerify(w http.ResponseWriter, r *http.Request) {
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" || !strings.HasPrefix(authHeader, "Basic ") {
@@ -96,6 +98,13 @@ func (a *AuthHandler) HandleVerify(w http.ResponseWriter, r *http.Request) {
 		// down the chain cannot tell them apart, so refuse the request.
 		log.Printf("failed to fetch groups for %s: %v", username, err)
 		http.Error(w, "Service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	if required := r.URL.Query().Get("group"); required != "" && !slices.Contains(groups, required) {
+		// The credentials were good, so this does not count against the rate
+		// limit, and no identity headers go back with the refusal.
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
