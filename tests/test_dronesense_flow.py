@@ -127,6 +127,43 @@ def test_missing_viewer_password_emits_no_video_but_keeps_the_proxy_path():
     assert any("MEDIAMTX_VIEWER_PASSWORD" in e for e in result["logs"]["error"])
 
 
+@pytest.mark.parametrize(
+    "field",
+    ["latitude", "longitude", "altitudeMsl", "heading", "speed", "spoiLat", "spoiLng"],
+)
+def test_non_numeric_upstream_values_never_reach_the_xml(field):
+    drone = {**DRONE, "spoiLat": 38.8, "spoiLng": -77.1, field: '1"/><evil x="'}
+    result = _run("ds-build", msg={"payload": [drone]}, env={"SERVER_ADDRESS": "tak.example.org"})
+    assert result["out"][0] is not None
+    assert not any("evil" in m["payload"] for m in result["out"][0])
+
+
+def test_marker_without_usable_coordinates_is_dropped():
+    drone = {**DRONE, "latitude": "not-a-number"}
+    result = _run("ds-build", msg={"payload": [drone]}, env={"SERVER_ADDRESS": "tak.example.org"})
+    assert result["out"][0] == []
+
+
+def test_valid_telemetry_reaches_the_cot():
+    drone = {**DRONE, "altitudeMsl": 120.5, "heading": 90, "speed": "4.5"}
+    result = _run("ds-build", msg={"payload": [drone]}, env={"SERVER_ADDRESS": "tak.example.org"})
+    cot = _platform_cot(result)
+    assert 'lat="38.9" lon="-77" hae="120.5"' in cot
+    assert 'course="90" slope="0.0" speed="4.5"' in cot
+
+
+def test_remarks_leave_out_the_upstream_relay_url():
+    cot = _platform_cot(_build({"SERVER_ADDRESS": "tak.example.org"}))
+    assert "relay.example" not in cot
+
+
+def test_remarks_keep_the_web_link():
+    sensor = {**DRONE["sensors"][0], "video_url": "https://view.example/s1"}
+    drone = {**DRONE, "sensors": [sensor]}
+    result = _run("ds-build", msg={"payload": [drone]}, env={"SERVER_ADDRESS": "tak.example.org"})
+    assert "Web: https://view.example/s1" in _platform_cot(result)
+
+
 def test_reconcile_authenticates_to_the_api():
     result = _run("ds-reconcile", env={"MEDIAMTX_API_PASSWORD": "apipw"})
     assert result["calls"], "reconcile made no API call"
