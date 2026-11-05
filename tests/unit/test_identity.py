@@ -270,16 +270,103 @@ class TestCreateUser:
 
 
 class TestDeactivateUser:
-    def test_only_sets_inactive(self, client, mock_http):
-        """deactivate_user should NOT set fastak_certs_revoked.
-        The flag is managed by the caller after confirming cert revocation."""
+    @pytest.fixture
+    def deactivating(self, client, mock_http):
         client._user_id_map = {1: "jsmith"}
-        mock_http["graphql"].return_value = {"updateUser": {"ok": True}}
+        mock_http["graphql"].return_value = {
+            "user": {
+                "id": "jsmith",
+                "groups": [
+                    {"id": 7, "displayName": "monitor_admin"},
+                    {"id": 8, "displayName": "tak_ops"},
+                ],
+            }
+        }
+        with patch.object(client, "set_password") as set_password:
+            yield {**mock_http, "set_password": set_password}
+
+    def test_does_not_claim_certs_are_revoked(self, client, deactivating):
+        """The flag is managed by the caller after confirming cert revocation."""
         client.deactivate_user(1)
-        call_args = mock_http["graphql"].call_args
-        variables = call_args[0][1] if len(call_args[0]) > 1 else {}
-        # Should NOT contain fastak_certs_revoked in the mutation
-        assert "fastak_certs_revoked" not in str(variables)
+        assert "fastak_certs_revoked" not in str(deactivating["graphql"].call_args_list)
+
+    def test_deletes_enrollment_tokens(self, client, deactivating):
+        client.deactivate_user(1)
+        deactivating["proxy"].assert_called_with("DELETE", "/tokens/jsmith")
+
+    def test_deletes_tokens_again_once_enrollment_is_refused(self, client, deactivating):
+        """Enrollment checks is_active, so a token minted before that write
+        would outlive a single delete."""
+        order = []
+        deactivating["proxy"].side_effect = lambda *a, **k: order.append("tokens") or MagicMock()
+        deactivating["graphql"].side_effect = lambda query, variables=None: (
+            order.append("inactive") if "is_active" in str(variables) else None
+        ) or {"user": {"id": "jsmith", "groups": []}}
+        client.deactivate_user(1)
+        assert order == ["tokens", "inactive", "tokens"]
+
+    @pytest.mark.parametrize("failing", ["proxy", "set_password"])
+    def test_one_failed_cut_does_not_stop_the_others(self, client, deactivating, failing):
+        deactivating[failing].side_effect = RuntimeError("down")
+        with pytest.raises(RuntimeError, match="Could not cut"):
+            client.deactivate_user(1)
+        deactivating["set_password"].assert_called_once()
+        deactivating["proxy"].assert_called_once()
+        assert "removeUserFromGroup" in str(deactivating["graphql"].call_args_list)
+
+    def test_replaces_the_password_with_an_unguessable_one(self, client, deactivating):
+        client.deactivate_user(1)
+        client.deactivate_user(1)
+        first, second = [c.args[1] for c in deactivating["set_password"].call_args_list]
+        assert len(first) >= 48
+        assert first != second
+
+    def test_removes_every_group_not_only_tak_ones(self, client, deactivating):
+        client.deactivate_user(1)
+        removed = [
+            c.args[1]["groupId"]
+            for c in deactivating["graphql"].call_args_list
+            if "removeUserFromGroup" in c.args[0]
+        ]
+        assert removed == [7, 8]
+
+    @pytest.mark.parametrize("failing", ["proxy", "set_password"])
+    def test_stays_active_until_every_credential_is_cut(self, client, deactivating, failing):
+        """The TTL job only retries active users, so failure must not mark inactive."""
+        deactivating[failing].side_effect = RuntimeError("down")
+        with pytest.raises(RuntimeError):
+            client.deactivate_user(1)
+        assert "is_active" not in str(deactivating["graphql"].call_args_list)
+
+    def test_inactive_is_written_last(self, client, deactivating):
+        client.deactivate_user(1)
+        assert "is_active" in str(deactivating["graphql"].call_args_list[-1])
+
+
+class TestInactiveUsersWithGroups:
+    def test_lists_only_inactive_users_that_still_have_a_group(self, client, mock_http):
+        def user(name, active, groups):
+            return {
+                "id": name,
+                "displayName": name,
+                "attributes": [{"name": "is_active", "value": [active]}],
+                "groups": [{"id": i, "displayName": g} for i, g in enumerate(groups)],
+            }
+
+        mock_http["graphql"].return_value = {
+            "users": [
+                user("gone", "false", ["monitor_admin"]),
+                user("cut", "false", []),
+                user("working", "true", ["tak_ops"]),
+                {
+                    "id": "never_flagged",
+                    "displayName": "x",
+                    "attributes": [],
+                    "groups": [{"id": 1, "displayName": "tak_a"}],
+                },
+            ]
+        }
+        assert [u["username"] for u in client.get_inactive_users_with_groups()] == ["gone"]
 
 
 class TestUpdateUser:

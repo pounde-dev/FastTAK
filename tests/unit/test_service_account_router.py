@@ -375,6 +375,24 @@ class TestDeleteServiceAccount:
         mock_tak.revoke_all_user_certs.assert_called_once_with("svc_bot1")
         mock_ak.mark_certs_revoked.assert_called_once_with(1)
 
+    def test_refuses_the_monitors_own_account(self, mock_clients):
+        """Revoking this cert would cut the monitor off from TAK Server."""
+        mock_ak, mock_tak = mock_clients
+        mock_ak.get_user.return_value = {"id": 1, "username": "svc_fasttakapi"}
+        resp = client.delete("/api/service-accounts/1")
+        assert resp.status_code == 409
+        mock_ak.deactivate_user.assert_not_called()
+        mock_tak.revoke_all_user_certs.assert_not_called()
+
+    def test_failed_cut_still_removes_nodered_pems(self, mock_clients):
+        mock_ak, mock_tak = mock_clients
+        mock_ak.get_user.return_value = {"id": 1, "username": "svc_bot1"}
+        mock_ak.deactivate_user.side_effect = RuntimeError("lldap down")
+        mock_tak.revoke_all_user_certs.return_value = True
+        with patch("app.api.service_accounts.router.remove_nodered_pems") as remove:
+            assert client.delete("/api/service-accounts/1").status_code == 502
+        remove.assert_called_once_with("svc_bot1")
+
     def test_404_for_missing(self, mock_clients):
         mock_ak, _ = mock_clients
         mock_ak.get_user.return_value = None

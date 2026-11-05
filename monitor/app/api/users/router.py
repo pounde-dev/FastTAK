@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.api.users.enrollment import build_enrollment_url
 from app.api.users.identity import IdentityClient
+from app.api.users.offboarding import offboard, refuse_system_account
 from app.api.users.tak_server import TakServerClient
 from app.config import settings
 
@@ -219,7 +220,9 @@ def update_user(user_id: int, body: UpdateUserRequest):
     Omitting the field entirely leaves it unchanged. This distinction uses
     Pydantic's ``model_fields_set`` to differentiate null from absent.
 
-    A deactivated user can be reactivated by setting ``is_active: true``.
+    Setting ``is_active: false`` does the same as DELETE. Setting it to ``true``
+    reactivates the user, who then needs a new password and groups from an admin,
+    because deactivation removes both.
 
     Args:
         user_id: LLDAP user ID.
@@ -230,11 +233,18 @@ def update_user(user_id: int, body: UpdateUserRequest):
 
     Raises:
         HTTPException(404): If user_id doesn't exist.
+        HTTPException(409): If deactivating an account the stack depends on.
+        HTTPException(502): If deactivation did not finish.
     """
     ak = _get_identity()
     user = ak.get_user(user_id)
     if not user:
         raise HTTPException(404, "User not found")
+    if body.is_active is False:
+        refuse_system_account(user["username"])
+    if body.ttl_hours is not None:
+        # Expiry deactivates the account, so a TTL is the same request.
+        refuse_system_account(user["username"], action="set an expiry on")
     kwargs = {}
     # is_active and name use `is not None` because null has no meaningful
     # semantic for them — there's no "clear name" or "clear active state".
@@ -242,44 +252,46 @@ def update_user(user_id: int, body: UpdateUserRequest):
     # TTL" while omitting the field entirely means "leave unchanged".
     if body.name is not None:
         kwargs["name"] = body.name
-    if body.is_active is not None:
-        kwargs["is_active"] = body.is_active
+    if body.is_active:
+        kwargs["is_active"] = True
     if "ttl_hours" in body.model_fields_set:
         kwargs["ttl_hours"] = body.ttl_hours
-    return ak.update_user(user_id, **kwargs)
+    updated = ak.update_user(user_id, **kwargs)
+    if body.is_active is False:
+        offboard(ak, _get_tak_server(), user_id, user["username"])
+        return ak.get_user(user_id)
+    return updated
 
 
 @router.delete("/api/users/{user_id}", summary="Delete user")
 def delete_user(user_id: int):
-    """Deactivate a user and revoke all their certificates.
+    """Deactivate a user: cut their logins and revoke their certificates.
 
-    This does **not** hard-delete the LLDAP user — it deactivates it to
-    preserve the audit trail. The user can be reactivated later via PATCH
-    with ``is_active: true``.
+    This does **not** hard-delete the LLDAP user, which preserves the audit
+    trail. Their password, groups and enrollment tokens are removed. They can be
+    reactivated via PATCH with ``is_active: true``, but need a new password and
+    groups afterwards. Safe to repeat if revocation failed.
 
     Args:
         user_id: LLDAP user ID.
 
     Returns:
-        ``{"success": true, "username": "..."}`` on success.
+        ``{"success": true, "username": "...", "certs_revoked": bool}``. A false
+        ``certs_revoked`` means logins are cut but a cert may still work.
 
     Raises:
         HTTPException(404): If user_id doesn't exist.
+        HTTPException(409): If this is an account the stack depends on.
+        HTTPException(502): If deactivation did not finish.
     """
     ak = _get_identity()
     user = ak.get_user(user_id)
     if not user:
         raise HTTPException(404, "User not found")
+    refuse_system_account(user["username"])
 
-    ak.deactivate_user(user_id)
-
-    tak = _get_tak_server()
-    if tak:
-        all_revoked = tak.revoke_all_user_certs(user["username"])
-        if all_revoked:
-            ak.mark_certs_revoked(user_id)
-
-    return {"success": True, "username": user["username"]}
+    certs_revoked = offboard(ak, _get_tak_server(), user_id, user["username"])
+    return {"success": True, "username": user["username"], "certs_revoked": certs_revoked}
 
 
 @router.post("/api/users/{user_id}/password", summary="Set user password")

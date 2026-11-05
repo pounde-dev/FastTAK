@@ -250,8 +250,70 @@ class TestDeleteUser:
         resp = client.delete("/api/users/1")
         assert resp.status_code == 404
 
+    def test_reports_certs_not_revoked(self, mock_clients):
+        mock_ak, mock_tak = mock_clients
+        mock_ak.get_user.return_value = {"id": 1, "username": "jsmith"}
+        mock_tak.revoke_all_user_certs.return_value = False
+        assert client.delete("/api/users/1").json()["certs_revoked"] is False
+
+    def test_failed_cut_is_an_error_but_certs_are_still_revoked(self, mock_clients):
+        mock_ak, mock_tak = mock_clients
+        mock_ak.get_user.return_value = {"id": 1, "username": "jsmith"}
+        mock_ak.deactivate_user.side_effect = RuntimeError("lldap down")
+        mock_tak.revoke_all_user_certs.return_value = True
+        resp = client.delete("/api/users/1")
+        assert resp.status_code == 502
+        mock_tak.revoke_all_user_certs.assert_called_once_with("jsmith")
+
+    def test_refuses_webadmin(self, mock_clients):
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {"id": 1, "username": "webadmin"}
+        resp = client.delete("/api/users/1")
+        assert resp.status_code == 409
+        assert "TAK_WEBADMIN_PASSWORD" in resp.json()["detail"]
+        mock_ak.deactivate_user.assert_not_called()
+
 
 class TestUpdateUser:
+    def test_patch_inactive_cuts_access_like_delete(self, mock_clients):
+        """A PATCH that only wrote the attribute would show a live user as inactive."""
+        mock_ak, mock_tak = mock_clients
+        mock_ak.get_user.return_value = {"id": 1, "username": "jsmith", "is_active": True}
+        mock_tak.revoke_all_user_certs.return_value = True
+        resp = client.patch("/api/users/1", json={"is_active": False})
+        assert resp.status_code == 200
+        mock_ak.deactivate_user.assert_called_once_with(1)
+        mock_tak.revoke_all_user_certs.assert_called_once_with("jsmith")
+
+    def test_patch_refuses_to_deactivate_webadmin(self, mock_clients):
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {"id": 1, "username": "webadmin"}
+        resp = client.patch("/api/users/1", json={"is_active": False})
+        assert resp.status_code == 409
+        mock_ak.deactivate_user.assert_not_called()
+
+    def test_patch_refuses_an_expiry_on_webadmin(self, mock_clients):
+        """Expiry deactivates the account, and the TTL job has no one to ask."""
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {"id": 1, "username": "webadmin"}
+        resp = client.patch("/api/users/1", json={"ttl_hours": 1})
+        assert resp.status_code == 409
+        mock_ak.update_user.assert_not_called()
+
+    def test_patch_can_clear_an_expiry_on_webadmin(self, mock_clients):
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {"id": 1, "username": "webadmin"}
+        mock_ak.update_user.return_value = {"id": 1, "username": "webadmin"}
+        assert client.patch("/api/users/1", json={"ttl_hours": None}).status_code == 200
+
+    def test_patch_active_does_not_deactivate(self, mock_clients):
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {"id": 1, "username": "jsmith", "is_active": False}
+        mock_ak.update_user.return_value = {"id": 1, "username": "jsmith", "is_active": True}
+        assert client.patch("/api/users/1", json={"is_active": True}).status_code == 200
+        mock_ak.update_user.assert_called_once_with(1, is_active=True)
+        mock_ak.deactivate_user.assert_not_called()
+
     def test_patch_ttl_null_clears_ttl(self, mock_clients):
         mock_ak, _ = mock_clients
         mock_ak.get_user.return_value = {

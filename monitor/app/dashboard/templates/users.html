@@ -171,7 +171,7 @@
     async toggleActive() {
         if (!this.selectedUser) return;
         const newState = !this.selectedUser.is_active;
-        if (!newState && !confirm('Deactivate ' + this.selectedUser.username + '? This will also revoke their certificates.')) return;
+        if (!newState && !confirm('Deactivate ' + this.selectedUser.username + '? This revokes their certificates and removes their password and groups. Reactivating will not restore them.')) return;
         this.actionLoading = true; this.actionResult = ''; this.actionError = false;
         try {
             if (newState) {
@@ -186,8 +186,15 @@
                 // Deactivate: DELETE deactivates user + revokes all TAK certs
                 const r = await fetch(`/api/users/${this.selectedUser.id}`, { method: 'DELETE' });
                 if (!r.ok) { const d = await r.json(); this.actionResult = d.detail || 'Failed'; this.actionError = true; return; }
+                const d = await r.json();
+                if (!d.certs_revoked) {
+                    this.actionResult = 'Deactivated, but certs were NOT revoked. Check TAK Server and deactivate again.';
+                    this.actionError = true;
+                    this.refreshList();
+                    return;
+                }
             }
-            this.actionResult = newState ? 'Activated' : 'Deactivated + certs revoked';
+            this.actionResult = newState ? 'Activated. Set a password and groups for this user.' : 'Deactivated + certs revoked';
             this.selectedUser = null;
             this.refreshList();
         } catch(e) { this.actionResult = e.message; this.actionError = true; }
