@@ -2,6 +2,22 @@
 
 Significant architectural and design decisions, with reasoning. Newest first.
 
+## DD-061: Deactivation cuts credentials instead of setting a flag
+
+**Date:** 2026-11-05
+**Status:** Decided
+
+**Decision:** Deactivating a user or service account deletes its enrollment tokens, replaces its password with a random one nobody keeps, removes it from every group, then sets `is_active=false` last. All three cuts are attempted even if one fails, and the account is marked inactive only when all three worked. `PATCH is_active:false`, `DELETE` and TTL expiry all do this. Reactivating restores neither the password nor the groups. `webadmin` and `svc_fasttakapi` cannot be deactivated. The response reports `certs_revoked`, and the dashboard says so when that is false.
+
+**Why:** `is_active` was an attribute nothing enforced at login, so a deactivated user kept LDAP binds, the monitor, WebTAK and, with `monitor_admin`, the backup key. LLDAP has no disabled state. The tokens have to go separately because ldap-proxy accepts a token before it reaches LLDAP. Groups go too because TAK Server reads them for cert users, so a cert that outlives deactivation is left with no access. `is_active` comes last because the TTL job only processes active users; written first, a failure would never be retried.
+
+**Consequences:** An admin must set a new password and groups after reactivating someone, and the log records which groups were removed. Deactivation fails with a 502 if a credential cannot be cut, and certs are still revoked in that case; the call is safe to repeat. The TTL job also cuts any inactive account that still belongs to a group, which covers accounts deactivated before this change and anyone who gives groups to an inactive account ([upgrade notes](upgrading.md)). A TTL cannot be set on `webadmin`, and the TTL job skips the accounts the stack depends on. A TAK session that is already connected is not closed by this.
+
+**Alternatives considered:**
+- Checking `is_active` in ldap-proxy on every bind: rejected. It adds a directory lookup to the login path, and a lookup failure either blocks all logins or lets the user in. It would keep the password for reactivation, but that convenience is not worth a second enforcement point.
+- Remembering groups for reactivation: rejected. Restoring old access, possibly `monitor_admin`, should be a deliberate act.
+- Letting `webadmin` be deactivated: rejected. Bootstrap re-creates it from `.env` on restart, so the deactivation would quietly undo itself.
+
 ## DD-060: LLDAP gets its own JWT secret and, on fresh installs, its own key seed
 
 **Date:** 2026-11-04

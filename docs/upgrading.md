@@ -126,6 +126,20 @@ one, but setting it on a directory that already has users stops LLDAP from
 starting, and forcing it invalidates every password
 ([DD-060](decisions.md)).
 
+### 8. Deactivation now cuts access (this release and later)
+
+Deactivating an account now removes its password, groups and enrollment tokens,
+and reactivating restores none of them ([DD-061](decisions.md)).
+
+Accounts deactivated **before** this release kept their password and groups.
+Within a minute of the upgraded monitor starting, it finds every inactive account
+that is still in a group and cuts it the same way, so there is nothing to do by
+hand. `docker compose logs monitor | grep "leftover access"` lists them.
+
+One case it cannot see: an account you deactivated earlier and had already
+removed from every group still has its old password. Deactivate it again through
+the API (`DELETE /api/users/<id>`), or set it a new password.
+
 ## What the scripts now handle for you
 
 These used to be manual steps and are no longer:
