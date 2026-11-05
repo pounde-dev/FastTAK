@@ -206,10 +206,23 @@ class TestGateGroupBootstrap:
 
     def test_split_groups_are_both_bootstrapped(self, monkeypatch):
         mod = self._reload_with(
-            monkeypatch, ADMIN_GROUP="fastak_operators", BACKUP_ADMIN_GROUP="fastak_backup"
+            monkeypatch,
+            ADMIN_GROUP="fastak_operators",
+            BACKUP_ADMIN_GROUP="fastak_backup",
+            NODERED_ADMIN_GROUP="fastak_operators",
         )
 
         assert mod.GATE_GROUPS == ["fastak_operators", "fastak_backup"]
+
+    def test_node_red_group_is_bootstrapped(self, monkeypatch):
+        mod = self._reload_with(
+            monkeypatch,
+            ADMIN_GROUP=None,
+            BACKUP_ADMIN_GROUP=None,
+            NODERED_ADMIN_GROUP="flow_authors",
+        )
+
+        assert mod.GATE_GROUPS == ["monitor_admin", "flow_authors"]
 
     def test_blank_env_falls_back_to_default(self, monkeypatch):
         mod = self._reload_with(monkeypatch, ADMIN_GROUP="   ", BACKUP_ADMIN_GROUP=None)
@@ -224,6 +237,7 @@ class TestGateGroupBootstrap:
             monkeypatch,
             ADMIN_GROUP="fastak_operators",
             BACKUP_ADMIN_GROUP="fastak_backup",
+            NODERED_ADMIN_GROUP="fastak_operators",
             TAK_WEBADMIN_PASSWORD="pw",
         )
         monkeypatch.setattr(mod, "graphql", mock_graphql)

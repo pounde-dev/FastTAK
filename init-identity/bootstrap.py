@@ -40,22 +40,24 @@ def _group_from_env(var: str, default: str = "monitor_admin") -> str:
     return os.environ.get(var, default).strip() or default
 
 
-# Gate groups for the monitor. Both are read from env so an operator who renames
+# Gate groups. All are read from env so an operator who renames
 # one (via .env) gets the renamed group bootstrapped and webadmin auto-joined,
 # rather than being locked out with a 403.
 #
 # ADMIN_GROUP gates every JSON API and dashboard page (DD-047); BACKUP_ADMIN_GROUP
 # gates the backup surfaces only, so a backup operator need not be a full admin.
-# They default to the same group. Both MUST be bootstrapped: without ADMIN_GROUP
+# NODERED_ADMIN_GROUP gates the Node-RED route in Caddy (DD-058).
+# They default to the same group. All MUST be bootstrapped: without ADMIN_GROUP
 # here, renaming it produces a group that nothing creates and nobody joins, which
 # 403s every route on the monitor — including for webadmin, with no way back in
 # through the UI.
 ADMIN_GROUP = _group_from_env("ADMIN_GROUP")
 BACKUP_ADMIN_GROUP = _group_from_env("BACKUP_ADMIN_GROUP")
+NODERED_ADMIN_GROUP = _group_from_env("NODERED_ADMIN_GROUP")
 
 # dict.fromkeys de-duplicates while preserving order, for the common case where
-# both names are "monitor_admin".
-GATE_GROUPS = list(dict.fromkeys([ADMIN_GROUP, BACKUP_ADMIN_GROUP]))
+# all three names are "monitor_admin".
+GATE_GROUPS = list(dict.fromkeys([ADMIN_GROUP, BACKUP_ADMIN_GROUP, NODERED_ADMIN_GROUP]))
 DEFAULT_GROUPS = ["tak_ROLE_ADMIN", *GATE_GROUPS]
 
 
