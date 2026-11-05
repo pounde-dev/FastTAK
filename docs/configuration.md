@@ -86,7 +86,7 @@ MediaMTX admits nobody anonymously ([DD-056](decisions.md)). Three fixed users, 
 |---|---|---|---|
 | `MEDIAMTX_VIEWER_PASSWORD` | `viewer` | Read and playback (RTSP, HLS) | TAK clients, in the video URL they receive for a stream |
 | `MEDIAMTX_PUBLISHER_PASSWORD` | `publisher` | Publish a stream | Every source that sends a stream: an encoder, a camera, a drone, a TAK plugin |
-| `MEDIAMTX_API_PASSWORD` | `api` | MediaMTX control API | Node-RED, readable by every flow |
+| `MEDIAMTX_API_PASSWORD` | `api` | MediaMTX control API | Node-RED, readable by every flow and by members of `NODERED_ADMIN_GROUP` |
 
 Compose refuses to start without all three. Browsers opening HLS are prompted for the viewer credential.
 

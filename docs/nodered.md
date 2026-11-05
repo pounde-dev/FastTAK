@@ -5,6 +5,8 @@ pre-installed for querying the `app-db` PostgreSQL database. For spatial queries
 point your flow at `tak-database` (connection details are the same pattern;
 `tak-database` has PostGIS natively).
 
+Only members of `NODERED_ADMIN_GROUP` (default `monitor_admin`) can reach Node-RED, and that includes anything a flow serves over HTTP. See [who may use Node-RED](authentication.md#authorization-who-may-use-node-red).
+
 ## Pre-configured Config Nodes
 
 Two config nodes are available out of the box — no credentials or certificates to set up:

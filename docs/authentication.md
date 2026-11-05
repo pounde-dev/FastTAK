@@ -111,17 +111,24 @@ to the new group yourself.
     Anything that can reach `monitor:8080` on the Docker network can set the
     header itself and be treated as an admin.
 
-    That includes Node-RED, whose flow editor is reachable by **every**
-    authenticated LDAP user (its Caddy route uses `forward_auth` with no group
-    check) and which can issue arbitrary HTTP requests by design. Keeping the
-    monitor's container port unpublished is necessary but not sufficient.
-
-    Node-RED's environment also holds the MediaMTX API password, so the same
-    access amounts to MediaMTX admin.
+    That includes Node-RED, which can issue arbitrary HTTP requests by design.
+    Keeping the monitor's container port unpublished is necessary but not
+    sufficient.
 
     Closing this needs either a shared secret injected by Caddy and required by
     the monitor, or network isolation so the monitor is unreachable from the
     services an ordinary user can drive. Tracked in the issue tracker.
+
+## Authorization: who may use Node-RED
+
+Node-RED runs whatever its flows contain, and its environment holds service
+credentials such as the MediaMTX API password. Caddy therefore admits only
+members of `NODERED_ADMIN_GROUP` (default `monitor_admin`); everyone else gets
+**403** on the editor, its admin API, and anything a flow serves over HTTP
+([DD-058](decisions.md)).
+
+`init-identity` creates the group and adds `webadmin` to it. To use a separate
+group, set `NODERED_ADMIN_GROUP` in `.env` and restart the stack.
 
 ## Rate Limiting
 

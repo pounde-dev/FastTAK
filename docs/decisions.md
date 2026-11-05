@@ -2,6 +2,22 @@
 
 Significant architectural and design decisions, with reasoning. Newest first.
 
+## DD-058: Node-RED is limited to one LDAP group
+
+**Date:** 2026-11-04
+**Status:** Decided
+
+**Decision:** `/auth/verify` takes an optional `group` parameter and returns 403 unless the user is a member. Caddy's Node-RED route passes `NODERED_ADMIN_GROUP`, default `monitor_admin`. The whole route is gated, including anything a flow serves over HTTP.
+
+**Why:** Node-RED has no authorization of its own behind `forward_auth`, and its editor runs code in the container by design, so every LDAP user and every holder of an enrollment token had a shell on the Docker network. The monitor gates its own routes (DD-047) but Node-RED cannot, so the check has to happen in front of it.
+
+**Consequences:** Users outside the group lose Node-RED on upgrade, including any dashboards or HTTP endpoints served by flows. A deployment that was reachable before this change should rebuild the `nodered-data` volume, because a planted flow, `settings.js` or npm package survives the upgrade. From inside the Docker network, `nodered:1880` still answers with no login, so this closes the route from users, not from another compromised container.
+
+**Alternatives considered:**
+- Node-RED `adminAuth`: rejected for now. It would add a second login on top of Basic auth, and it leaves flow HTTP endpoints open.
+- A new dedicated group: rejected as the default. The editor holds credentials an admin already has, and a new group would lock everyone out until someone joined it. `NODERED_ADMIN_GROUP` allows one where a deployment wants it.
+- Gating only `/` and the admin API: rejected, because Node-RED's paths are configurable and a missed path would fail open.
+
 ## DD-057: Caddy strips identity and credential headers around forward_auth
 
 **Date:** 2026-11-04
@@ -22,7 +38,7 @@ Significant architectural and design decisions, with reasoning. Newest first.
 
 **Decision:** MediaMTX has three fixed internal users — `viewer` (read, playback), `publisher` (publish), `api` (control API) — and no `any` entry. Their passwords are generated into `.env` and injected by Compose through `MTX_AUTHINTERNALUSERS_<index>_PASS`/`_IPS`, with `${VAR:?}` so a missing password stops `docker compose up`. The entries in `mediamtx.yml` are loopback-only placeholders, so the file alone admits nobody. Publishing needs the publisher password **and** a source address in `MEDIAMTX_PUBLISH_IPS`, which defaults to `127.0.0.1/32` (off). RTSP uses Digest only. The users are per role, not per source: every source that sends a stream (an encoder, a camera, a TAK plugin such as UAS Tool) signs in as `publisher` and may use any path. Whatever announces a stream to TAK clients puts the viewer credential in the marker's `<__video>` url and `ConnectionEntry address`; the DroneSense flow and `video-cot.sh` do this today. The DroneSense flow, where MediaMTX pulls the video, is a stopgap until sources publish directly (#38).
 
-**Why:** The previous config let anyone who reached 8554/1935 watch every stream or publish into a path operators watch — an integrity attack on the map. Operators worked around it by unpublishing the ports, which also shut out every permitted viewer and source outside the Docker network. The API needs a credential too: it can rewrite `authInternalUsers` at runtime, and the password keeps *other* containers on the Docker network from granting themselves access. Node-RED holds this credential in its environment, so anyone who can edit Node-RED flows (currently every authenticated LDAP user, see `docs/authentication.md`) effectively has MediaMTX admin until the Node-RED route is group-gated.
+**Why:** The previous config let anyone who reached 8554/1935 watch every stream or publish into a path operators watch — an integrity attack on the map. Operators worked around it by unpublishing the ports, which also shut out every permitted viewer and source outside the Docker network. The API needs a credential too: it can rewrite `authInternalUsers` at runtime, and the password keeps *other* containers on the Docker network from granting themselves access. Node-RED holds this credential in its environment, so anyone who can edit Node-RED flows (members of `NODERED_ADMIN_GROUP`, DD-058) effectively has MediaMTX admin.
 
 **Alternatives considered:**
 - IP-only publish restriction — rejected: the source address MediaMTX sees depends on the platform (Docker Desktop NATs every client to its VM gateway; on Linux a localhost client arrives from the bridge gateway, inside the Docker subnet).
