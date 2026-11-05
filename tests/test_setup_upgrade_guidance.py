@@ -249,3 +249,29 @@ def test_upgrade_points_at_the_full_procedure(upgrade):
 
 def test_the_two_paths_do_not_give_the_same_instruction(fresh, upgrade):
     assert fresh != upgrade
+
+
+def _env_value(env_file: Path, key: str) -> str:
+    return next(
+        line.partition("=")[2]
+        for line in env_file.read_text().splitlines()
+        if line.startswith(f"{key}=")
+    )
+
+
+def test_fresh_install_gets_its_own_lldap_key_seed(tmp_path):
+    result = _run_setup(tmp_path, None)
+    assert result.returncode == 0, result.stderr
+    assert re.fullmatch(
+        r"[0-9a-f]{64}", _env_value(_mini_repo(tmp_path) / ".env", "LLDAP_KEY_SEED")
+    )
+
+
+def test_upgrade_leaves_lldap_key_seed_empty(tmp_path):
+    """A seed on an existing directory would invalidate every password (DD-060)."""
+    repo = _mini_repo(tmp_path)
+    _existing(repo, "5.8-RELEASE-64")
+    result = _run_setup(tmp_path, None)
+    assert result.returncode == 0, result.stderr
+    assert _env_value(repo / ".env", "LLDAP_KEY_SEED") == ""
+    assert re.fullmatch(r"[0-9a-f]{64}", _env_value(repo / ".env", "LLDAP_JWT_SECRET"))

@@ -205,6 +205,12 @@ services:
       LLDAP_LDAP_BASE_DN: ${LDAP_BASE_DN:-DC=takldap}
       LLDAP_LDAP_USER_DN: adm_ldapservice
       LLDAP_LDAP_USER_PASS: ${LDAP_BIND_PASSWORD}
+      # Unset, LLDAP signs admin sessions with its public default (DD-060).
+      LLDAP_JWT_SECRET: ${LLDAP_JWT_SECRET:?LLDAP_JWT_SECRET is unset or empty - run ./scripts/ensure-secrets.sh .env}
+      # Generated on fresh installs only. The fallback is the value the image's
+      # config template has always applied, so an existing directory keeps its
+      # passwords. Changing it on a populated directory invalidates all of them.
+      LLDAP_KEY_SEED: ${LLDAP_KEY_SEED:-RanD0m STR1ng}
       LLDAP_DATABASE_URL: postgres://fastak:${APP_DB_PASSWORD}@app-db:5432/lldap
       LLDAP_LDAP_PORT: 3890
       LLDAP_HTTP_PORT: 17170

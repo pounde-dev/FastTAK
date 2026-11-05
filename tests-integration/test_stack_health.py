@@ -127,3 +127,15 @@ def test_monitor_ignores_a_forged_admin_header_from_the_docker_network(compose_e
         ],
     )
     assert result.stdout.strip() == "403"
+
+
+def test_lldap_is_not_on_its_default_jwt_secret(compose_cmd, compose_env):
+    logs = subprocess.run(
+        [*compose_cmd, "logs", "--no-log-prefix", "lldap"],
+        capture_output=True,
+        text=True,
+        env=compose_env,
+        timeout=30,
+        check=True,
+    )
+    assert "Default JWT secret used" not in logs.stdout + logs.stderr
