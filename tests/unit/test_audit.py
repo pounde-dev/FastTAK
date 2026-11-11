@@ -293,3 +293,102 @@ def test_an_unconfigured_secret_trusts_nobody(monkeypatch):
     assert (
         client.get("/who", headers={**FORGED, "X-FastTAK-Proxy-Secret": ""}).json() == NO_IDENTITY
     )
+
+
+def _app_with_middleware(monkeypatch):
+    from app.audit import AuditMiddleware, AuthContextMiddleware
+    from fastapi import FastAPI, Request
+    from fastapi.testclient import TestClient
+    from pydantic import BaseModel
+
+    recorded = []
+    monkeypatch.setattr("app.audit.record_event", lambda **kw: recorded.append(kw))
+
+    class Body(BaseModel):
+        name: str
+
+    app = FastAPI()
+    app.add_middleware(AuditMiddleware)
+    app.add_middleware(AuthContextMiddleware)
+
+    @app.post("/echo")
+    def echo(body: Body):
+        return {"name": body.name}
+
+    @app.post("/vacuum")
+    def vacuum():
+        return {"ran": True}
+
+    @app.get("/ip")
+    def ip(request: Request):
+        return {"ip": request.state.client_ip}
+
+    return TestClient(app), recorded
+
+
+@pytest.mark.parametrize("site", ["cross-site", "same-site"])
+def test_a_change_requested_by_another_site_is_refused(monkeypatch, site):
+    """The browser adds the admin's Basic credentials to any request for this
+    origin, and a route with no body needs nothing else."""
+    client, recorded = _app_with_middleware(monkeypatch)
+    r = client.post("/vacuum", headers={"Sec-Fetch-Site": site})
+    assert r.status_code == 403
+    assert recorded == []
+
+
+@pytest.mark.parametrize(
+    "headers", [{"Sec-Fetch-Site": "same-origin"}, {"Sec-Fetch-Site": "none"}, {}]
+)
+def test_the_dashboard_and_command_line_clients_still_work(monkeypatch, headers):
+    client, _ = _app_with_middleware(monkeypatch)
+    assert client.post("/vacuum", headers=headers).status_code == 200
+
+
+def test_reads_from_another_site_are_not_refused(monkeypatch):
+    """The browser's same-origin policy already keeps the response from that site."""
+    client, _ = _app_with_middleware(monkeypatch)
+    assert client.get("/ip", headers={"Sec-Fetch-Site": "cross-site"}).status_code == 200
+
+
+def test_the_handler_still_receives_the_body(monkeypatch):
+    client, recorded = _app_with_middleware(monkeypatch)
+    r = client.post("/echo", json={"name": "alice"})
+    assert r.json() == {"name": "alice"}
+    assert recorded[0]["detail"]["request_body"] == {"name": "alice"}
+
+
+def test_an_oversized_body_is_refused_before_it_is_read(monkeypatch):
+    from app import audit
+
+    monkeypatch.setattr(audit, "MAX_BODY_BYTES", 64)
+    client, recorded = _app_with_middleware(monkeypatch)
+    r = client.post("/echo", json={"name": "x" * 100})
+    assert r.status_code == 413
+    assert recorded == []
+
+
+def test_an_oversized_body_without_a_declared_length_is_refused(monkeypatch):
+    from app import audit
+
+    monkeypatch.setattr(audit, "MAX_BODY_BYTES", 64)
+    client, _ = _app_with_middleware(monkeypatch)
+
+    def chunks():
+        for _ in range(10):
+            yield b"x" * 32
+
+    assert client.post("/echo", content=chunks()).status_code == 413
+
+
+def test_the_recorded_address_is_the_one_caddy_saw(monkeypatch):
+    """Through Caddy the peer is Caddy's container. Caddy writes the last entry."""
+    client, _ = _app_with_middleware(monkeypatch)
+    r = client.get("/ip", headers={"X-Forwarded-For": "6.6.6.6, 203.0.113.9"})
+    assert r.json() == {"ip": "203.0.113.9"}
+
+
+@pytest.mark.real_proxy_check
+def test_a_forwarded_address_without_the_proxy_secret_is_ignored(monkeypatch):
+    client, _ = _app_with_middleware(monkeypatch)
+    r = client.get("/ip", headers={"X-Forwarded-For": "203.0.113.9"})
+    assert r.json() == {"ip": "testclient"}
