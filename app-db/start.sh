@@ -91,11 +91,17 @@ fi
 psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
   "ALTER SYSTEM RESET ALL;" >/dev/null 2>&1
 
-# Sync password using ALTER ROLE via stdin to avoid shell interpolation issues
-psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
-  "ALTER ROLE \"$POSTGRES_USER\" WITH PASSWORD :'newpass'" \
-  --set=newpass="$POSTGRES_PASSWORD" \
-  >/dev/null 2>&1
+# Sync the superuser password from .env, so rotating APP_DB_PASSWORD takes
+# effect. psql does not substitute variables in a -c string, so the password
+# goes over stdin and \getenv, which also keeps it out of the argument list.
+if ! psql -X -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -v role="$POSTGRES_USER" <<'SQL'
+\getenv newpass POSTGRES_PASSWORD
+ALTER ROLE :"role" WITH PASSWORD :'newpass';
+SQL
+then
+  echo "[app-db] WARNING: could not apply APP_DB_PASSWORD from .env; services using it will fail to log in." >&2
+fi
 
 # Create nodered database with PostGIS if it doesn't exist
 psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tc \
