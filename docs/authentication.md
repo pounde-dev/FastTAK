@@ -122,6 +122,13 @@ members of `NODERED_ADMIN_GROUP` (default `monitor_admin`); everyone else gets
 `init-identity` creates the group and adds `webadmin` to it. To use a separate
 group, set `NODERED_ADMIN_GROUP` in `.env` and restart the stack.
 
+!!! warning "These groups are not separate levels of privilege"
+    A separate group limits who sees a page. It does not limit what its members
+    can reach. A Node-RED user runs code in a container that holds the app
+    database password, and a monitor admin can set any user's password. Give
+    `ADMIN_GROUP`, `BACKUP_ADMIN_GROUP` and `NODERED_ADMIN_GROUP` only to people
+    you would trust with the whole stack.
+
 ## Rate Limiting
 
 Authentication requests to `/auth/verify` (the endpoint Caddy uses for

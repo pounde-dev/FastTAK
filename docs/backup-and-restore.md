@@ -77,6 +77,11 @@ After your first key download, the warning banner disappears.
 You can re-download the key any time. There is no rotation — the same
 identity encrypts every backup.
 
+The key is also kept on the host, in the backup directory, next to the archives
+it decrypts. Encryption therefore protects copies of the archives that leave the
+host, not the host itself: anyone who can read that directory, or a disk
+snapshot of it, has both.
+
 ## Routine operations
 
 **Manually:** `just backup run` from the host runs a backup via the monitor
