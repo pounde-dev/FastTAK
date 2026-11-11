@@ -31,6 +31,13 @@ func freePort(t *testing.T) int {
 // passed, not that a real search ran).
 func startTestProxy(t *testing.T) (addr string, store *TokenStore) {
 	t.Helper()
+	return startLimitedTestProxy(t, nil)
+}
+
+// startLimitedTestProxy is startTestProxy with a bind limiter and an LLDAP stub
+// that rejects every password, so a wrong password is a failure, not an error.
+func startLimitedTestProxy(t *testing.T, limiter *RateLimiter) (addr string, store *TokenStore) {
+	t.Helper()
 
 	store, err := NewTokenStore(filepath.Join(t.TempDir(), "tokens.db"))
 	if err != nil {
@@ -38,6 +45,9 @@ func startTestProxy(t *testing.T) (addr string, store *TokenStore) {
 	}
 	proxy := NewLDAPProxy(store, "127.0.0.1:1", "dc=takldap",
 		"uid=adm_ldapservice,ou=people,dc=takldap", "adminpw")
+	if limiter != nil {
+		proxy.lldapBind = func(string, string) (bool, error) { return false, nil }
+	}
 	auth := newConnAuth()
 
 	s, err := gldap.NewServer(gldap.WithOnClose(func(id int) { auth.forget(id) }))
@@ -48,7 +58,7 @@ func startTestProxy(t *testing.T) (addr string, store *TokenStore) {
 	if err != nil {
 		t.Fatalf("new mux: %v", err)
 	}
-	_ = r.Bind(makeBindHandler(proxy, auth))
+	_ = r.Bind(makeBindHandler(proxy, auth, limiter))
 	_ = r.Search(makeSearchHandler(proxy, auth))
 	_ = r.Unbind(makeUnbindHandler())
 	_ = r.DefaultRoute(makeDefaultHandler())
@@ -134,5 +144,66 @@ func TestSearchAllowedAfterBind(t *testing.T) {
 	}
 	if code := ldapResultCode(err); code == ldap.LDAPResultInsufficientAccessRights {
 		t.Fatalf("authenticated search was wrongly rejected by the authz gate: %v", err)
+	}
+}
+
+func bindResult(t *testing.T, addr, dn, password string) error {
+	t.Helper()
+	conn, err := ldap.DialURL("ldap://" + addr)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+	return conn.Bind(dn, password)
+}
+
+// Password guessing through TAK Server's port 8446 arrives here as binds.
+func TestRepeatedFailedBindsLockTheNameOut(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
+	limiter := NewRateLimiter(time.Minute, 5*time.Minute, 3, fakeClock(&now))
+	addr, store := startLimitedTestProxy(t, limiter)
+	token, err := store.Create("alice", 15, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Spellings of one name share a count.
+	for _, dn := range []string{
+		"uid=alice,ou=people,dc=takldap",
+		"UID=Alice,ou=people,dc=takldap",
+		"uid=alice,ou=people,dc=takldap",
+	} {
+		if err := bindResult(t, addr, dn, "guess"); err == nil {
+			t.Fatal("a wrong password bound")
+		}
+	}
+
+	if err := bindResult(t, addr, "uid=alice,ou=people,dc=takldap", token); err == nil {
+		t.Error("a locked-out name bound with a valid credential")
+	}
+	if err := bindResult(t, addr, "uid=bob,ou=people,dc=takldap", "guess"); err == nil {
+		t.Fatal("a wrong password bound")
+	}
+	if allowed, _ := limiter.CheckLockout("bob"); !allowed {
+		t.Error("one name's failures locked out another")
+	}
+
+	now = now.Add(6 * time.Minute)
+	if err := bindResult(t, addr, "uid=alice,ou=people,dc=takldap", token); err != nil {
+		t.Errorf("the name should bind again once the lockout ends: %v", err)
+	}
+}
+
+// Locking this account would stop TAK Server reading the directory at all.
+func TestTheServiceAccountIsNeverLockedOut(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
+	limiter := NewRateLimiter(time.Minute, 5*time.Minute, 2, fakeClock(&now))
+	addr, _ := startLimitedTestProxy(t, limiter)
+
+	for range 5 {
+		_ = bindResult(t, addr, "uid=adm_ldapservice,ou=people,dc=takldap", "guess")
+	}
+	if allowed, _ := limiter.CheckLockout("adm_ldapservice"); !allowed {
+		t.Error("the service account was locked out")
 	}
 }

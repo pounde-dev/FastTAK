@@ -9,17 +9,16 @@ import (
 	"time"
 )
 
-// newVerifyHandler returns an AuthHandler whose bind succeeds through the token
-// store, so these tests need no LLDAP, plus the token that binds as username.
+// newVerifyHandler returns an AuthHandler whose LLDAP bind is a stub that knows
+// one user, so these tests need no LLDAP, plus that user's password.
 func newVerifyHandler(t *testing.T, username string) (*AuthHandler, string) {
 	t.Helper()
-	store := tempDB(t)
-	token, err := store.Create(username, 15, false)
-	if err != nil {
-		t.Fatal(err)
+	const password = "correct horse battery staple"
+	proxy := NewLDAPProxy(tempDB(t), "127.0.0.1:1", "dc=takldap", "", "")
+	proxy.lldapBind = func(bindDN, got string) (bool, error) {
+		return bindDN == "uid="+username+",ou=people,dc=takldap" && got == password, nil
 	}
-	proxy := NewLDAPProxy(store, "127.0.0.1:1", "dc=takldap", "", "")
-	return NewAuthHandler(proxy, nil), token
+	return NewAuthHandler(proxy, nil), password
 }
 
 func verify(h *AuthHandler, target, username, password string) *httptest.ResponseRecorder {
@@ -150,5 +149,20 @@ func TestVerifyGroupRefusalDoesNotCountAsAFailedLogin(t *testing.T) {
 
 	if allowed, _ := limiter.CheckLockout(clientIP(httptest.NewRequest("GET", "/", nil))); !allowed {
 		t.Error("a 403 locked the client out")
+	}
+}
+
+func TestVerifyRefusesAnEnrollmentToken(t *testing.T) {
+	h, _ := newVerifyHandler(t, "alice")
+	token, err := h.proxy.tokens.Create("alice", 15, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if ok, _ := h.proxy.HandleBind("uid=alice,ou=people,dc=takldap", token); !ok {
+		t.Fatal("the token should still bind for TAK Server enrollment")
+	}
+	if rr := verify(h, "/auth/verify", "alice", token); rr.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401: a token must not log in to the monitor or Node-RED", rr.Code)
 	}
 }

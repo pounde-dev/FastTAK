@@ -86,6 +86,9 @@ func main() {
 	rateLimitMax := envIntOrDefault("LDAP_RATE_LIMIT_MAX_ATTEMPTS", 10)
 	log.Printf("rate limit: window=%s max=%d lockout=%s (counting failures only)", rateLimitWindow, rateLimitMax, rateLimitLockout)
 	authRateLimit := NewRateLimiter(rateLimitWindow, rateLimitLockout, rateLimitMax, time.Now)
+	// Same limits for binds on the LDAP listener, counted per account name
+	// because the client address is TAK Server's. See makeBindHandler.
+	bindRateLimit := NewRateLimiter(rateLimitWindow, rateLimitLockout, rateLimitMax, time.Now)
 
 	// REST API
 	tokensAPI := NewTokensAPI(tokens, defaultTTL, defaultOneTime)
@@ -110,7 +113,7 @@ func main() {
 	// Start LDAP proxy in background
 	go func() {
 		log.Printf("LDAP proxy listening on %s → %s", ldapListenAddr, lldapAddr)
-		if err := startLDAPServer(ldapListenAddr, proxy, connAuth); err != nil {
+		if err := startLDAPServer(ldapListenAddr, proxy, connAuth, bindRateLimit); err != nil {
 			log.Fatalf("LDAP server error: %v", err)
 		}
 	}()

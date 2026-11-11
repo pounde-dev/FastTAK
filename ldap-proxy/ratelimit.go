@@ -103,6 +103,9 @@ func (rl *RateLimiter) RecordFailure(ip string) {
 
 	st, ok := rl.state[ip]
 	if !ok {
+		if len(rl.state) >= pruneAbove {
+			rl.prune(now)
+		}
 		st = &ipState{}
 		rl.state[ip] = st
 	}
@@ -131,6 +134,27 @@ func (rl *RateLimiter) RecordFailure(ip string) {
 	// see the lockout.
 	if len(st.failures) >= rl.maxAttempts {
 		st.lockoutUntil = now.Add(rl.lockout)
+	}
+}
+
+// pruneAbove is the number of tracked keys at which RecordFailure first drops
+// the ones with nothing left to remember. Keys come from the internet (source
+// addresses, and account names on the LDAP listener), so without this the map
+// only grows.
+const pruneAbove = 4096
+
+// prune drops keys with no lockout in force and no failure inside the window.
+// The caller holds rl.mu.
+func (rl *RateLimiter) prune(now time.Time) {
+	cutoff := now.Add(-rl.window)
+	for key, st := range rl.state {
+		if now.Before(st.lockoutUntil) {
+			continue
+		}
+		if n := len(st.failures); n > 0 && st.failures[n-1].After(cutoff) {
+			continue
+		}
+		delete(rl.state, key)
 	}
 }
 

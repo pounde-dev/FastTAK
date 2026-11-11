@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -329,5 +330,29 @@ func TestMiddleware_MalformedXForwardedFor_FallsBackToRemoteAddr(t *testing.T) {
 
 	if rr.Code != http.StatusTooManyRequests {
 		t.Fatalf("expected 429 after malformed XFF falls back to RemoteAddr, got %d", rr.Code)
+	}
+}
+
+func TestKeysWithNothingToRememberArePruned(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
+	rl := NewRateLimiter(time.Minute, 5*time.Minute, 2, fakeClock(&now))
+
+	rl.RecordFailure("locked")
+	rl.RecordFailure("locked")
+	for i := range pruneAbove {
+		rl.RecordFailure(fmt.Sprintf("stale-%d", i))
+	}
+	now = now.Add(2 * time.Minute)
+	rl.RecordFailure("recent")
+	rl.RecordFailure("trigger")
+
+	if len(rl.state) > 4 {
+		t.Errorf("%d keys kept, want the stale ones dropped", len(rl.state))
+	}
+	if allowed, _ := rl.CheckLockout("locked"); allowed {
+		t.Error("pruning dropped a lockout that was still in force")
+	}
+	if _, ok := rl.state["recent"]; !ok {
+		t.Error("pruning dropped a key with a failure inside the window")
 	}
 }
