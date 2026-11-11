@@ -198,6 +198,42 @@ EOF
   esac
 done
 
+# ── Secrets between services ───────────────────────────────────────────────
+# docker-compose.yml refuses to start without these; naming the key here gives
+# `--doctor` and a hand-edited .env the same answer before anything starts.
+for key in MONITOR_PROXY_SECRET LLDAP_JWT_SECRET; do
+  if [ -z "$(get_env_value "$key")" ]; then
+    cat >&2 <<EOF
+ERROR: $key is unset or empty in $ENV_FILE.
+
+The stack will not start without it. Generate it:
+  ./scripts/ensure-secrets.sh $ENV_FILE
+EOF
+    exit 1
+  fi
+done
+
+# Caddy pastes MONITOR_PROXY_SECRET into its config as text before parsing it,
+# so a space or a brace would change the directive instead of the value.
+case "$(get_env_value MONITOR_PROXY_SECRET)" in
+  *[!A-Za-z0-9_-]*)
+    cat >&2 <<EOF
+ERROR: MONITOR_PROXY_SECRET in $ENV_FILE must be letters, digits, "-" and "_" only.
+
+Clear it and regenerate:
+  ./scripts/ensure-secrets.sh $ENV_FILE
+EOF
+    exit 1
+    ;;
+esac
+
+# ── File mode ──────────────────────────────────────────────────────────────
+# Every secret in the stack is in this file. A warning, not an error: some
+# hosts share it with a deploy group on purpose.
+if [ -n "$(find "$ENV_FILE" -perm -004 2>/dev/null)" ]; then
+  echo "WARNING: $ENV_FILE is readable by every user on this host. Run: chmod 600 $ENV_FILE" >&2
+fi
+
 # ── TAK_VERSION ────────────────────────────────────────────────────────────
 # setup.sh refuses a below-floor release bundle, but .env can be edited by
 # hand. Compose interpolates this into the image tags, so an empty value

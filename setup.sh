@@ -277,6 +277,8 @@ if [ ! -f "$TARGET_DIR/.env" ]; then
   echo ""
   echo "▸ Creating .env and generating secrets..."
   cp "$SCRIPT_DIR/.env.example" "$TARGET_DIR/.env"
+  # Every secret in the stack goes in this file.
+  chmod 600 "$TARGET_DIR/.env"
   sed -i.bak "s/^TAK_VERSION=.*/TAK_VERSION=${VERSION}/" "$TARGET_DIR/.env"
   rm -f "$TARGET_DIR/.env.bak"
 
