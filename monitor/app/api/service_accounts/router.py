@@ -14,6 +14,7 @@ from app.api.service_accounts.cert_gen import (
     get_revoked_serials,
     register_admin_cert,
     remove_nodered_pems,
+    unregister_admin_cert,
     write_nodered_pems,
 )
 from app.api.users.identity import IdentityClient
@@ -341,6 +342,19 @@ def delete_service_account(account_id: int):
 
     refuse_system_account(user["username"])
 
+    # First, and on its own: offboard raises when a credential cannot be cut,
+    # and an admin cert must not keep its role because LLDAP was unreachable.
+    admin_role_removed = True
+    if user.get("fastak_user_type") == "svc_admin":
+        result = unregister_admin_cert(user["username"])
+        if not result.get("success"):
+            log.error(
+                "Failed to remove admin role from %s: %s",
+                user["username"],
+                result.get("error") or result.get("output"),
+            )
+            admin_role_removed = False
+
     try:
         certs_revoked = offboard(ak, _get_tak_server(), account_id, user["username"])
     finally:
@@ -348,7 +362,11 @@ def delete_service_account(account_id: int):
         # admin-mode accounts never had one, rm -f handles that case.
         remove_nodered_pems(user["username"])
 
-    return {"success": True, "username": user["username"], "certs_revoked": certs_revoked}
+    return {
+        "success": True,
+        "username": user["username"],
+        "certs_revoked": certs_revoked and admin_role_removed,
+    }
 
 
 @router.get(

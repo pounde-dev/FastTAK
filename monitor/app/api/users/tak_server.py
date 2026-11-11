@@ -123,10 +123,14 @@ class TakServerClient:
     def list_user_certs(self, username: str) -> list[dict]:
         """List certs for a user by CN match."""
         try:
-            data = self._get("/Marti/api/certadmin/cert", params={"username": username})
+            return self._fetch_user_certs(username)
         except httpx.HTTPError:
             log.warning("Failed to query certs for %s", username)
             return []
+
+    def _fetch_user_certs(self, username: str) -> list[dict]:
+        """List certs, letting a failure raise: an empty list must mean no certs."""
+        data = self._get("/Marti/api/certadmin/cert", params={"username": username})
         return [
             {
                 "id": c["id"],
@@ -157,7 +161,7 @@ class TakServerClient:
         """Revoke all active certs for a user via CRL (not certadmin DB flag).
 
         Covers two cert sources:
-        1. On-disk .pem files matching {username}-*.pem (monitor-generated)
+        1. On-disk .pem files owned by this user (monitor-generated)
         2. Certs in TAK certadmin with no on-disk copy (QR-enrolled) — PEM is
            extracted from the certadmin response and fed to CRL revocation.
 
@@ -177,7 +181,12 @@ class TakServerClient:
             for err in disk_result.get("errors", []):
                 log.error("On-disk cert revocation failed for %s: %s", username, err)
 
-        certs = self.list_user_certs(username)
+        try:
+            certs = self._fetch_user_certs(username)
+        except httpx.HTTPError as exc:
+            log.error("Cannot list certs for %s, so cannot confirm revocation: %s", username, exc)
+            return False
+
         for cert in certs:
             if cert.get("revocation_date") is not None:
                 continue
@@ -199,6 +208,10 @@ class TakServerClient:
                     result.get("error", ""),
                 )
                 all_ok = False
+                continue
+            # The CRL is what stops the cert. This flag keeps the dashboard honest,
+            # so a failure is logged by revoke_cert and picked up by any retry.
+            self.revoke_cert(cert["id"])
 
         return all_ok
 

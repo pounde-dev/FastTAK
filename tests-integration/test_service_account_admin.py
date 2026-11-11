@@ -34,3 +34,18 @@ class TestServiceAccountAdmin:
         status, data = api("DELETE", f"/api/service-accounts/{sid}")
         assert status == 200
         assert data.get("success") is True
+        assert data.get("certs_revoked") is True, "the dashboard reports this to the admin"
+
+    @pytest.mark.dependency(depends=["svc_admin_create"])
+    def test_cert_is_on_the_crl(self, api, compose_exec, created_resources):
+        sid = created_resources["svc_admin_id"]
+        _, account = api("GET", f"/api/service-accounts/{sid}")
+        pem = f"/opt/tak/certs/files/{account['username']}.pem"
+        serial = compose_exec(
+            "tak-server", ["openssl", "x509", "-in", pem, "-noout", "-serial"]
+        ).stdout.strip()
+        crl = compose_exec(
+            "tak-server",
+            ["openssl", "crl", "-in", "/opt/tak/certs/files/ca.crl", "-noout", "-text"],
+        ).stdout
+        assert serial.removeprefix("serial=") in crl.replace(" ", "")
