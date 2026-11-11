@@ -61,6 +61,13 @@ def test_client_supplied_identity_headers_are_dropped_before_auth(authed_routes)
         assert max(strip_user, strip_groups) < route.index("forward_auth")
 
 
+def test_client_supplied_forwarded_address_is_never_trusted(authed_routes):
+    """ldap-proxy locks out by the address Caddy forwards. With trusted_proxies,
+    a client seen from a private range chooses that address itself (#62)."""
+    for route in authed_routes:
+        assert "trusted_proxies" not in route
+
+
 def test_backends_never_receive_the_ldap_password(authed_routes):
     for route in authed_routes:
         assert re.search(r"reverse_proxy \S+ \{[^}]*header_up -Authorization", route)

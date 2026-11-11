@@ -353,7 +353,6 @@ https://${SERVER_ADDRESS}:${NODERED_PORT} {
         request_header -Remote-Groups
         forward_auth ldap-proxy:8080 {
             uri /auth/verify
-            trusted_proxies private_ranges
         }
         reverse_proxy nodered:1880 {
             header_up -Authorization
@@ -372,7 +371,6 @@ https://${SERVER_ADDRESS}:${MONITOR_PORT} {
         forward_auth ldap-proxy:8080 {
             uri /auth/verify
             copy_headers ${COPY_HEADERS}
-            trusted_proxies private_ranges
         }
         reverse_proxy monitor:8080 {
             header_up -Authorization
@@ -418,7 +416,6 @@ ${NODERED_SUBDOMAIN}.${SERVER_ADDRESS} {
         request_header -Remote-Groups
         forward_auth ldap-proxy:8080 {
             uri /auth/verify
-            trusted_proxies private_ranges
         }
         reverse_proxy nodered:1880 {
             header_up -Authorization
@@ -436,7 +433,6 @@ ${MONITOR_SUBDOMAIN}.${SERVER_ADDRESS} {
         forward_auth ldap-proxy:8080 {
             uri /auth/verify
             copy_headers ${COPY_HEADERS}
-            trusted_proxies private_ranges
         }
         reverse_proxy monitor:8080 {
             header_up -Authorization
