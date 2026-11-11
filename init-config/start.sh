@@ -217,6 +217,58 @@ if ! grep -q 'x509useGroupCacheRequiresExtKeyUsage' "${CONFIG}"; then
   sed -i 's|<auth |<auth x509useGroupCacheRequiresExtKeyUsage="false" |' "${CONFIG}"
 fi
 
+# ── 8b. Point TAK Server at the revocation list ─────────────────────────────
+# The monitor and certs.sh revoke a cert by adding it to ca.crl. TAK Server
+# reads that file only if <tls> names it; without this a revoked cert still
+# connects (DD-063).
+#
+# The list is rewritten on every start from crl_index.txt, which keeps every
+# earlier revocation. That creates it when there is none, since the file must
+# exist before TAK Server starts, and it renews the list's own expiry date: a
+# list past its nextUpdate may be treated as "cannot tell", which could refuse
+# every client. -crldays matches the CA's ten years for the same reason.
+
+if [ -f "${CERT_FILES}/ca.pem" ] && [ -f "${CERT_FILES}/ca-do-not-share.key" ]; then
+  (
+    cd "${CERT_FILES}" &&
+      touch crl_index.txt crl_index.txt.attr &&
+      { grep -q unique_subject crl_index.txt.attr || echo "unique_subject = no" >>crl_index.txt.attr; } &&
+      openssl ca -config "${CERT_DIR}/config.cfg" -gencrl -crldays 3650 \
+        -keyfile ca-do-not-share.key -key atakatak -cert ca.pem -out ca.crl.new >/dev/null 2>&1 &&
+      mv ca.crl.new ca.crl
+  ) && echo "[init] Certificate revocation list refreshed" ||
+    echo "[init] WARNING: could not refresh ca.crl" >&2
+  rm -f "${CERT_FILES}/ca.crl.new"
+fi
+
+if ! grep -q 'crlFile=' "${CONFIG}"; then
+  if [ ! -f "${CERT_FILES}/ca.crl" ]; then
+    echo "[init] WARNING: no ca.crl, so revocation is NOT enforced by TAK Server" >&2
+  else
+    # Only the <tls> inside <security>: federation has its own <tls>.
+    awk -v crl='<crl _name="TAKServer CA" crlFile="certs/files/ca.crl"/>' '
+      /<security[ >]/ { in_security = 1 }
+      in_security && !done && match($0, /<tls [^>]*\/>/) {
+        element = substr($0, RSTART, RLENGTH)
+        $0 = substr($0, 1, RSTART - 1) substr(element, 1, length(element) - 2) ">" crl "</tls>" substr($0, RSTART + RLENGTH)
+        done = 1
+      }
+      in_security && !done && match($0, /<tls [^>]*>/) {
+        $0 = substr($0, 1, RSTART + RLENGTH - 1) crl substr($0, RSTART + RLENGTH)
+        done = 1
+      }
+      /<\/security>/ { in_security = 0 }
+      { print }
+    ' "${CONFIG}" >"${CONFIG}.crl" && cat "${CONFIG}.crl" >"${CONFIG}"
+    rm -f "${CONFIG}.crl"
+    if grep -q 'crlFile=' "${CONFIG}"; then
+      echo "[init] TAK Server will read the revocation list"
+    else
+      echo "[init] WARNING: no <tls> element found in <security>; revocation is NOT enforced by TAK Server" >&2
+    fi
+  fi
+fi
+
 # ── 9. Template retention policy ────────────────────────────────────────────
 # Configure TAK Server's built-in retention service from .env variables.
 # Unset values default to null (keep forever), matching stock TAK Server.

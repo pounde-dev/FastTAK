@@ -101,7 +101,12 @@ CORECONFIG = """<?xml version="1.0" encoding="UTF-8"?>
   </repository>
   <network><connector port="8446" enableAdminUI="true"/></network>
   <auth><ldap serviceAccountDN="cn=adm_ldapservice,ou=people,dc=takldap"/></auth>
-  <security><certificateSigning CA="TAKServer"></certificateSigning></security>
+  <security>
+    <tls keystoreFile="certs/files/takserver.jks">
+      <crl _name="TAKServer CA" crlFile="certs/files/ca.crl"/>
+    </tls>
+    <certificateSigning CA="TAKServer"></certificateSigning>
+  </security>
   <groups adminGroup="ROLE_ADMIN"/>
 </Configuration>
 """
@@ -405,7 +410,7 @@ def test_healthy_stack_passes_every_check(deployment):
     result, _ = run_start(deployment)
     assert result.returncode == 0, result.stderr
     assert "❌" not in result.stdout, result.stdout
-    assert "✅ All checks passed (32/32)" in result.stdout
+    assert "✅ All checks passed (33/33)" in result.stdout
 
 
 def test_doctor_runs_only_the_checks(deployment):

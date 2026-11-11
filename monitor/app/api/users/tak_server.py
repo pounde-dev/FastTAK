@@ -209,8 +209,9 @@ class TakServerClient:
                 )
                 all_ok = False
                 continue
-            # The CRL is what stops the cert. This flag keeps the dashboard honest,
-            # so a failure is logged by revoke_cert and picked up by any retry.
+            # Both matter: the CRL is what TAK Server checks at the TLS handshake
+            # (DD-063), and this flag is TAK's own record for certs it enrolled.
+            # A failure is logged by revoke_cert and picked up by any retry.
             self.revoke_cert(cert["id"])
 
         return all_ok
