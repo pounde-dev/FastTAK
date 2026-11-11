@@ -77,9 +77,25 @@ func TestVerifyRejectsDNMetacharactersInUsername(t *testing.T) {
 		return nil, nil
 	}
 
-	for _, username := range []string{"alice,x", "alice,ou=other", "alice=x", "ali\\ce", "alice\n", `al"ice`} {
+	for _, username := range []string{
+		"alice,x", "alice,ou=other", "alice=x", "ali\\ce", "alice\n", `al"ice`,
+		" alice", "alice\t", "al*ce", "alice)(uid=*", "",
+	} {
 		if rr := verify(h, "/auth/verify", username, token); rr.Code != http.StatusUnauthorized {
 			t.Errorf("username %q: status = %d, want 401", username, rr.Code)
 		}
+	}
+}
+
+func TestVerifyReportsOneSpellingOfAUsername(t *testing.T) {
+	h, token := newVerifyHandler(t, "alice")
+	h.groupLookup = func(string) ([]string, error) { return nil, nil }
+
+	rr := verify(h, "/auth/verify", "ALICE", token)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	if got := rr.Header().Get("Remote-User"); got != "alice" {
+		t.Errorf("Remote-User = %q, want alice", got)
 	}
 }

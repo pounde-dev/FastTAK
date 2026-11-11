@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
 
 	ldap "github.com/go-ldap/ldap/v3"
@@ -63,7 +64,9 @@ func (a *AuthHandler) HandleVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	username, password := parts[0], parts[1]
+	// LLDAP matches names without regard to case. Lowercase here so the
+	// identity handed to the backends and the audit log is always the same one.
+	username, password := strings.ToLower(parts[0]), parts[1]
 	if !isPlainUsername(username) {
 		w.Header().Set("WWW-Authenticate", `Basic realm="FastTAK"`)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -101,12 +104,14 @@ func (a *AuthHandler) HandleVerify(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// isPlainUsername rejects anything that would change the meaning of the bind DN
-// built from it. The bind path reads only the part before the first comma, so
-// without this "alice,junk" would be verified as alice and returned to the
-// caller as a different identity.
+// plainUsername matches the names the monitor lets an admin create. Anything
+// else could change the meaning of the bind DN built from it: the bind path
+// reads only the part before the first comma, so "alice,junk" would be verified
+// as alice and returned to the caller as a different identity.
+var plainUsername = regexp.MustCompile(`^[a-zA-Z0-9._-]{1,64}$`)
+
 func isPlainUsername(username string) bool {
-	return username != "" && !strings.ContainsAny(username, ",=+<>#;\\\"\x00\r\n")
+	return plainUsername.MatchString(username)
 }
 
 // fetchUserGroups queries LLDAP for the user's group memberships.
