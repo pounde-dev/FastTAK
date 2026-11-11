@@ -17,7 +17,7 @@ from app.api.service_accounts.cert_gen import (
     unregister_admin_cert,
     write_nodered_pems,
 )
-from app.api.users.identity import IdentityClient
+from app.api.users.identity import IdentityClient, UserExistsError
 from app.api.users.offboarding import offboard, refuse_system_account
 from app.api.users.tak_server import TakServerClient
 from app.config import settings
@@ -174,12 +174,15 @@ def create_service_account(body: CreateServiceAccountRequest):
 
     # Create LLDAP user
     user_type = "svc_data" if body.mode == ServiceAccountMode.data else "svc_admin"
-    user = ak.create_user(
-        username=username,
-        name=body.display_name,
-        groups=body.groups if body.mode == ServiceAccountMode.data else None,
-        user_type=user_type,
-    )
+    try:
+        user = ak.create_user(
+            username=username,
+            name=body.display_name,
+            groups=body.groups if body.mode == ServiceAccountMode.data else None,
+            user_type=user_type,
+        )
+    except UserExistsError:
+        raise HTTPException(409, f"An account named '{username}' already exists") from None
 
     # Generate certificate
     cert_result = generate_client_cert(username, validity_days)
