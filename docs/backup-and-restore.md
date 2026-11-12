@@ -31,6 +31,33 @@ reading every step.
 - The extracted `tak/` directory minus `certs/` — re-extracted from the
   TAK Server release zip via `setup.sh`.
 
+
+## Keep the TAK Server images
+
+The backup does not contain the two TAK Server images, and they cannot always
+be built again. The bundle's Dockerfiles install the newest packages from
+several repositories at build time; when those repositories are out of step,
+the build fails until they catch up, whatever FastTAK version you run.
+
+After a successful `just setup`, export the images and keep the file with your
+backups:
+
+```bash
+TAK_VERSION=$(grep '^TAK_VERSION=' .env | cut -d= -f2)
+docker save "takserver:${TAK_VERSION}" "takserver-database:${TAK_VERSION}" | gzip > "tak-images-${TAK_VERSION}.tar.gz"
+```
+
+On a new host, load them before `just setup`, which then reuses them and
+builds nothing:
+
+```bash
+docker load < tak-images-<version>.tar.gz
+```
+
+The images hold no secrets and no data: certificates, `CoreConfig.xml` and the
+databases live outside them. They are specific to the CPU architecture they
+were built on (x86-64 or ARM).
+
 ## First-time setup
 
 1. Start the stack normally (`just up`).
