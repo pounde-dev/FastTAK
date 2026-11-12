@@ -12,17 +12,29 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/scripts/lib-env.sh"
 usage() {
   cat <<'EOF'
-Usage: ./setup.sh [-d <dir>] <takserver-docker-hardened-X.X-RELEASE-N.zip>
+Usage: ./setup.sh [-d <dir>] [--rebuild] <takserver-docker-hardened-X.X-RELEASE-N.zip>
 
 Extract the TAK Server release, build the images, and create or update .env.
 
   -d <dir>      target directory for tak/ and .env (default: this directory)
+  --rebuild     build the TAK images even when Docker already has them for
+                this TAK Server version (the default is to reuse them)
   -h, --help    show this help
 EOF
 }
 
 TARGET_DIR="$SCRIPT_DIR"
+REBUILD=false
 case "${1:-}" in -h|--help) usage; exit 0 ;; esac
+# getopts has no long options, so take --rebuild out of the arguments first.
+ARGS=()
+for arg in "$@"; do
+  case "$arg" in
+    --rebuild) REBUILD=true ;;
+    *) ARGS+=("$arg") ;;
+  esac
+done
+set -- "${ARGS[@]}"
 while getopts ":d:" opt; do
   case "$opt" in
     d) TARGET_DIR="$OPTARG" ;;
@@ -138,22 +150,49 @@ build_image() {
     echo "  ERROR: build of $tag failed. Last 40 lines:" >&2
     tail -40 "$log" >&2
     rm -f "$log"
+    cat >&2 <<EOF
+
+  The Dockerfile comes from the TAK Server bundle, and it installs the newest
+  packages from several repositories at build time. A failure with a 404 or
+  a package conflict above usually means those repositories are out of step
+  with each other, not that FastTAK or your bundle is broken.
+
+  What you can do:
+    - Retry later, or look for a newer bundle on tak.gov.
+    - If another machine has $tag, copy it over:
+        docker save $tag | gzip > image.tar.gz     (there)
+        docker load < image.tar.gz                 (here)
+      then run this command again: an image that exists is reused.
+  A running deployment is not affected: \`just up\` does not build this image.
+EOF
     exit 1
   fi
   tail -1 "$log"
   rm -f "$log"
 }
 
-echo ""
-echo "▸ Building Docker images (this may take a few minutes)..."
-echo "  Note: the hardened images install packages from the Rocky, EPEL,"
-echo "        Adoptium and PGDG repositories during the build. This step"
-echo "        requires outbound network access."
-echo "  Building takserver-database:${VERSION}..."
-build_image "takserver-database:${VERSION}" "$DOCKERFILE_DB"
+# Build an image only when Docker does not have it. The tag carries the full
+# TAK Server version, so an existing image came from this same bundle version.
+# Rebuilding it gains nothing and can fail: the bundle's Dockerfiles install
+# the newest packages from Red Hat, Rocky, EPEL and PGDG, and when those are
+# out of step the build breaks for reasons that have nothing to do with the
+# bundle (see docs/troubleshooting.md).
+ensure_image() {
+  local tag="$1" dockerfile="$2"
+  if [ "$REBUILD" != true ] && docker image inspect "$tag" >/dev/null 2>&1; then
+    echo "  Using existing $tag (--rebuild to build it again)"
+    return 0
+  fi
+  echo "  Building $tag..."
+  build_image "$tag" "$dockerfile"
+}
 
-echo "  Building takserver:${VERSION}..."
-build_image "takserver:${VERSION}" "$DOCKERFILE_SERVER"
+echo ""
+echo "▸ TAK Server Docker images (a build may take a few minutes)..."
+echo "  Note: a build installs packages from the Rocky, EPEL, Adoptium and"
+echo "        PGDG repositories, and requires outbound network access."
+ensure_image "takserver-database:${VERSION}" "$DOCKERFILE_DB"
+ensure_image "takserver:${VERSION}" "$DOCKERFILE_SERVER"
 
 # ── Set up tak/ directory ────────────────────────────────────────────────────
 echo ""
