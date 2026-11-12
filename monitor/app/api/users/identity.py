@@ -546,21 +546,29 @@ class IdentityClient:
         except (ValueError, TypeError):
             return None
 
-        data = self._graphql(
-            """
-            query($id: Int!) {
-                group(groupId: $id) {
-                    id
-                    displayName
-                    users {
+        try:
+            data = self._graphql(
+                """
+                query($id: Int!) {
+                    group(groupId: $id) {
                         id
                         displayName
+                        users {
+                            id
+                            displayName
+                        }
                     }
                 }
-            }
-            """,
-            {"id": gid},
-        )
+                """,
+                {"id": gid},
+            )
+        except RuntimeError as exc:
+            # LLDAP answers a missing group with an error, not `group: null`.
+            # Unhandled, that turned GET and DELETE of a missing group into a
+            # server error instead of the 404 both routes document.
+            if "entity not found" in str(exc).lower():
+                return None
+            raise
         g = data.get("group")
         if g is None:
             return None

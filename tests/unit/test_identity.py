@@ -577,6 +577,18 @@ class TestGetGroup:
         mock_http["graphql"].return_value = {"group": None}
         assert client.get_group("999") is None
 
+    def test_returns_none_when_lldap_reports_entity_not_found(self, client, mock_http):
+        """What LLDAP really sends for a missing group: an error, not null."""
+        mock_http["graphql"].side_effect = RuntimeError(
+            "GraphQL error: [{'message': 'Entity not found: `8`', 'path': ['group']}]"
+        )
+        assert client.get_group("8") is None
+
+    def test_other_lldap_errors_still_raise(self, client, mock_http):
+        mock_http["graphql"].side_effect = RuntimeError("GraphQL error: [{'message': 'boom'}]")
+        with pytest.raises(RuntimeError, match="boom"):
+            client.get_group("8")
+
 
 class TestCreateGroup:
     def test_prepends_tak_prefix(self, client, mock_http):
