@@ -39,3 +39,12 @@ class TestGroupManagement:
         assert status == 200
         names = [g["name"] for g in data]
         assert test_group_name not in names
+
+    @pytest.mark.dependency(depends=["group_delete"])
+    def test_deleted_group_is_404_not_a_server_error(self, api, created_resources):
+        """LLDAP answers a missing group with an error; the monitor must turn
+        that into the 404 these routes document. The session cleanup deletes
+        this group a second time and relies on it."""
+        gid = created_resources["test_group_id"]
+        assert api("GET", f"/api/groups/{gid}")[0] == 404
+        assert api("DELETE", f"/api/groups/{gid}")[0] == 404
