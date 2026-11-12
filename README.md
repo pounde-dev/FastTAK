@@ -291,7 +291,11 @@ just up
 ### TAK Server updates
 
 TAK Server images are built locally from the tak.gov release ZIP. `just setup`
-handles extraction, image builds, and updating `TAK_VERSION` in `.env`.
+handles extraction, image builds, and updating `TAK_VERSION` in `.env`. It
+builds each image once: when Docker already has `takserver:<version>` and
+`takserver-database:<version>`, it reuses them (`just setup --rebuild <zip>`
+builds them again). Keep a copy of the built images; see
+[Keep the TAK Server images](docs/backup-and-restore.md#keep-the-tak-server-images).
 
 **Moving an existing deployment to a new TAK Server release is not yet
 supported.** Nothing carries the databases across a version change. Back up

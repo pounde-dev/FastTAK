@@ -127,6 +127,32 @@ Two things produce that state:
 Either way, remove the existing server entry in ATAK before re-importing so
 the stale truststore is not left behind.
 
+## `just setup` fails while building a TAK Server image
+
+**Symptoms**
+
+`just setup` (or `just test-stack up`, which runs it) stops with
+`ERROR: build of takserver...:<version> failed`, and the log above it shows a
+`404` for a repository, or a package that cannot be installed.
+
+**What is actually wrong**
+
+The Dockerfiles come from the TAK Server bundle. They start from a fixed Red
+Hat image and then update every package, which can move the image to a newer
+minor release than the Rocky and PostgreSQL repositories have published yet.
+The build then asks those repositories for a release that does not exist.
+Nothing in FastTAK or in your bundle changed; the same bundle built before and
+will build again when the repositories catch up.
+
+**Fix**
+
+- A running deployment needs no fix. `just up` does not build these images.
+- If Docker on this machine still has the images, `just setup` reuses them.
+  Check with `docker images | grep takserver`.
+- If another machine has them, or you kept an export, load it. See
+  [Keep the TAK Server images](backup-and-restore.md#keep-the-tak-server-images).
+- Otherwise retry later, or look for a newer bundle on tak.gov.
+
 ## Every Monitor page returns 403
 
 The Monitor is admin-only as of v0.28.1. The account you are logged in with is
