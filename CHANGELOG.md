@@ -2,6 +2,31 @@
 
 <!-- version list -->
 
+## v0.31.1 (2026-11-13)
+
+### Bug Fixes
+
+- **groups**: A missing group is a 404, not a server error
+  ([`539a4a8`](https://github.com/pounde/FastTAK/commit/539a4a8d1eb67c73efd1654cc13b3a5e366fbae6))
+
+- **setup**: Reuse TAK Server images that already exist; --rebuild to force
+  ([`dcd26cf`](https://github.com/pounde/FastTAK/commit/dcd26cfe51d18dd8fc09191b83f1b477902839ba))
+
+### Chores
+
+- Sync uv.lock with the v0.31.0 release
+  ([`336d5e9`](https://github.com/pounde/FastTAK/commit/336d5e95143c9b308c41d7e2ba2e68d919f24e52))
+
+- **mediamtx**: Pin 1.21.1 and refuse older pins
+  ([#145](https://github.com/pounde/FastTAK/pull/145),
+  [`5522209`](https://github.com/pounde/FastTAK/commit/5522209dc60b73fa1fc5479506f51676212e4104))
+
+### Documentation
+
+- Keep an export of the TAK Server images; what to do when their build fails
+  ([`df316ce`](https://github.com/pounde/FastTAK/commit/df316ce3d13cf57c5778aafe5c1c17c25bfac7fa))
+
+
 ## v0.31.0 (2026-09-22)
 
 ### Bug Fixes
