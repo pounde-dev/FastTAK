@@ -106,3 +106,24 @@ def test_healthcheck_passes_and_has_no_open_incident(compose_exec):
         ["sh", "-c", "test -f /opt/tak/logs/incident/.tripped && echo tripped || echo clear"],
     )
     assert "clear" in (marker.stdout or "")
+
+
+def test_monitor_ignores_a_forged_admin_header_from_the_docker_network(compose_exec):
+    """The attack DD-059 closes: another container claiming to be an admin."""
+    result = compose_exec(
+        "nodered",
+        [
+            "curl",
+            "-s",
+            "-o",
+            "/dev/null",
+            "-w",
+            "%{http_code}",
+            "-H",
+            "Remote-User: forged",
+            "-H",
+            "Remote-Groups: monitor_admin",
+            "http://monitor:8080/api/users",
+        ],
+    )
+    assert result.stdout.strip() == "403"

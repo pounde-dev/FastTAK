@@ -21,6 +21,23 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "monitor"))
 
 
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "real_proxy_check: run the monitor's Caddy check instead of bypassing it"
+    )
+
+
+@pytest.fixture(autouse=True)
+def _requests_count_as_coming_through_caddy(request, monkeypatch):
+    """TestClient has no Caddy in front, and suites send only Remote-* headers.
+
+    Tests of the check itself carry the `real_proxy_check` marker.
+    """
+    if request.node.get_closest_marker("real_proxy_check"):
+        return
+    monkeypatch.setattr("app.audit.request_came_through_caddy", lambda _request: True)
+
+
 @pytest.fixture
 def mock_settings(monkeypatch):
     """Patch app.config.settings with test defaults."""

@@ -22,6 +22,29 @@ MONITOR_HOST_PORT = 18180
 # ---------------------------------------------------------------------------
 
 
+def _find_state_file() -> Path | None:
+    project = os.environ.get("FASTAK_TEST_PROJECT")
+    if project and Path(f"/tmp/{project}/.test-state").exists():
+        return Path(f"/tmp/{project}/.test-state")
+    # Fall back to globbing — picks up a stack created by `--no-up`
+    # mid-session even when FASTAK_TEST_PROJECT points at one that's
+    # been torn down.
+    candidates = sorted(glob("/tmp/fastak-test-*/.test-state"), reverse=True)
+    return Path(candidates[0]) if candidates else None
+
+
+def _read_key_values(path: Path) -> dict[str, str]:
+    """Parse bash KEY=value lines, as in the state file and .env."""
+    info = {}
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if "=" in line and not line.startswith("#"):
+            key, _, value = line.partition("=")
+            # Strip surrounding quotes
+            info[key] = value.strip("\"'")
+    return info
+
+
 @dataclass
 class StackInfo:
     project: str
@@ -42,29 +65,10 @@ def stack_info() -> StackInfo:
     cost per test is negligible and the resilience is worth more than the
     cache hit.
     """
-    project = os.environ.get("FASTAK_TEST_PROJECT")
-    state_file: str | None = None
-    if project and Path(f"/tmp/{project}/.test-state").exists():
-        state_file = f"/tmp/{project}/.test-state"
-    else:
-        # Fall back to globbing — picks up a stack created by `--no-up`
-        # mid-session even when FASTAK_TEST_PROJECT points at one that's
-        # been torn down.
-        candidates = sorted(glob("/tmp/fastak-test-*/.test-state"), reverse=True)
-        state_file = candidates[0] if candidates else None
-
-    if not state_file or not Path(state_file).exists():
+    state_file = _find_state_file()
+    if state_file is None:
         pytest.skip("No running test stack. Run 'just test-up' first.")
-
-    # Source the state file (bash key=value format)
-    info = {}
-    for line in Path(state_file).read_text().splitlines():
-        line = line.strip()
-        if "=" in line and not line.startswith("#"):
-            key, _, value = line.partition("=")
-            # Strip surrounding quotes
-            value = value.strip("\"'")
-            info[key] = value
+    info = _read_key_values(state_file)
 
     return StackInfo(
         project=info["PROJECT"],
@@ -145,10 +149,21 @@ def compose_exec(compose_cmd, compose_env):
 # ---------------------------------------------------------------------------
 
 
-# Caddy sets these after a successful LDAP bind; the test stack publishes the
-# monitor port directly, so the tests supply them. Every route except
-# /api/ping is admin-gated (issue #52), so without them the suite gets 403s.
-ADMIN_HEADERS = {"Remote-User": "integration-tester", "Remote-Groups": "monitor_admin"}
+def admin_headers() -> dict[str, str]:
+    """What Caddy sends after a successful login by an admin.
+
+    The test stack publishes the monitor port directly, so the tests supply
+    these. Every route except /api/ping is admin-gated (issue #52), and the
+    monitor ignores identity headers without the proxy secret (DD-059). Read
+    per call because test_backup_restore replaces the stack mid-session.
+    """
+    state = _read_key_values(_find_state_file())
+    secret = _read_key_values(Path(state["ENV_FILE"]))["MONITOR_PROXY_SECRET"]
+    return {
+        "Remote-User": "integration-tester",
+        "Remote-Groups": "monitor_admin",
+        "X-FastTAK-Proxy-Secret": secret,
+    }
 
 
 @pytest.fixture(scope="session")
@@ -157,12 +172,10 @@ def api():
 
     Usage: status, data = api("GET", "/api/ping")
     """
-    with httpx.Client(
-        base_url=f"http://localhost:{MONITOR_HOST_PORT}", timeout=30, headers=ADMIN_HEADERS
-    ) as client:
+    with httpx.Client(base_url=f"http://localhost:{MONITOR_HOST_PORT}", timeout=30) as client:
 
         def _call(method: str, path: str, json_data: dict | None = None):
-            response = client.request(method, path, json=json_data)
+            response = client.request(method, path, json=json_data, headers=admin_headers())
             try:
                 body = response.json()
             except ValueError:

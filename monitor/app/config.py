@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     # Shared secret for the ldap-proxy /tokens API (TOKENS_API_SECRET). Sent as
     # a bearer token on every proxy request; the proxy rejects calls without it.
     ldap_proxy_secret: str = ""
+    # Shared secret proving a request came through Caddy (MONITOR_PROXY_SECRET).
+    # Without it, Remote-User and Remote-Groups are ignored (DD-059).
+    monitor_proxy_secret: str = ""
 
     # TAK Server API (mTLS)
     tak_server_url: str = "https://tak-server:8443"

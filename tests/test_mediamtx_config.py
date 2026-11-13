@@ -92,10 +92,17 @@ def test_publishing_is_off_by_default():
     assert MTX_ENV["MTX_AUTHINTERNALUSERS_1_IPS"] == "${MEDIAMTX_PUBLISH_IPS:-127.0.0.1/32}"
 
 
+# Secrets that other services require. Compose stops at the first one that is
+# empty, so these need a value before a MediaMTX password can be the reason.
+OTHER_REQUIRED_SECRETS = {
+    "MONITOR_PROXY_SECRET": "a1" * 16,
+}
+
+
 def _compose_config(tmp_path, overrides: dict[str, str]) -> subprocess.CompletedProcess:
     env_file = tmp_path / ".env"
     lines = [(REPO / ".env.example").read_text()]
-    lines += [f"{k}={v}" for k, v in overrides.items()]
+    lines += [f"{k}={v}" for k, v in (OTHER_REQUIRED_SECRETS | overrides).items()]
     env_file.write_text("\n".join(lines) + "\n")
     return subprocess.run(
         [

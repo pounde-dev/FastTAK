@@ -2,6 +2,8 @@
 
 from unittest.mock import patch
 
+import pytest
+
 
 def test_init_schema_runs_create_table_idempotently():
     from app.audit import init_schema
@@ -235,3 +237,59 @@ def test_audit_middleware_does_not_break_request_when_db_fails():
 
     assert r.status_code == 200
     assert r.json() == {"id": 42}
+
+
+def _identity_app(monkeypatch, secret):
+    from app.audit import AuthContextMiddleware
+    from fastapi import FastAPI, Request
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr("app.config.settings.monitor_proxy_secret", secret)
+    app = FastAPI()
+    app.add_middleware(AuthContextMiddleware)
+
+    @app.get("/who")
+    def who(request: Request):
+        return {"user": request.state.username, "groups": request.state.groups}
+
+    return TestClient(app)
+
+
+FORGED = {"Remote-User": "alice", "Remote-Groups": "monitor_admin"}
+NO_IDENTITY = {"user": "unknown", "groups": []}
+
+
+@pytest.mark.real_proxy_check
+def test_identity_headers_count_with_the_proxy_secret(monkeypatch):
+    client = _identity_app(monkeypatch, "s3cret")
+    r = client.get("/who", headers={**FORGED, "X-FastTAK-Proxy-Secret": "s3cret"})
+    assert r.json() == {"user": "alice", "groups": ["monitor_admin"]}
+
+
+@pytest.mark.real_proxy_check
+def test_identity_headers_without_the_secret_are_ignored(monkeypatch):
+    client = _identity_app(monkeypatch, "s3cret")
+    assert client.get("/who", headers=FORGED).json() == NO_IDENTITY
+
+
+@pytest.mark.real_proxy_check
+def test_identity_headers_with_a_wrong_secret_are_ignored(monkeypatch):
+    client = _identity_app(monkeypatch, "s3cret")
+    r = client.get("/who", headers={**FORGED, "X-FastTAK-Proxy-Secret": "nope"})
+    assert r.json() == NO_IDENTITY
+
+
+@pytest.mark.real_proxy_check
+def test_a_non_ascii_secret_is_refused_rather_than_raising(monkeypatch):
+    client = _identity_app(monkeypatch, "s3cret")
+    r = client.get("/who", headers={**FORGED, "X-FastTAK-Proxy-Secret": b"caf\xc3\xa9"})
+    assert r.status_code == 200
+    assert r.json() == NO_IDENTITY
+
+
+@pytest.mark.real_proxy_check
+def test_an_unconfigured_secret_trusts_nobody(monkeypatch):
+    client = _identity_app(monkeypatch, "")
+    assert (
+        client.get("/who", headers={**FORGED, "X-FastTAK-Proxy-Secret": ""}).json() == NO_IDENTITY
+    )

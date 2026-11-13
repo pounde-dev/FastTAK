@@ -108,6 +108,14 @@ endpoints served by flows. Add the people who need it to the group, or set
     Then re-import your flows. The container creates its starter flows on
     first boot.
 
+### 6. The monitor needs `MONITOR_PROXY_SECRET` (this release and later)
+
+`./start.sh` adds it to your `.env`. If you bring the stack up some other way,
+run `./scripts/ensure-secrets.sh .env` first; Compose refuses to start without
+it. Anything that called the monitor directly with `Remote-Groups` from inside
+the Docker network now gets 403, which is the point
+([DD-059](decisions.md)).
+
 ## What the scripts now handle for you
 
 These used to be manual steps and are no longer:

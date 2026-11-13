@@ -313,6 +313,9 @@ services:
     depends_on:
       init-config:
         condition: service_completed_successfully
+    environment:
+      # Read by the generated Caddyfile, so the secret is not written to disk.
+      MONITOR_PROXY_SECRET: ${MONITOR_PROXY_SECRET:?MONITOR_PROXY_SECRET is unset or empty - run ./scripts/ensure-secrets.sh .env}
     ports:
       - "80:80"
       - "443:443"
@@ -531,6 +534,7 @@ services:
       LLDAP_URL: http://lldap:17170
       LDAP_PROXY_URL: http://ldap-proxy:8080
       LDAP_PROXY_SECRET: ${TOKENS_API_SECRET}
+      MONITOR_PROXY_SECRET: ${MONITOR_PROXY_SECRET:?MONITOR_PROXY_SECRET is unset or empty - run ./scripts/ensure-secrets.sh .env}
       LDAP_ADMIN_PASSWORD: ${LDAP_BIND_PASSWORD}
       TAK_SERVER_URL: https://tak-server:8443
       TAK_API_CERT_PATH: /opt/tak/certs/files/svc_fasttakapi.p12

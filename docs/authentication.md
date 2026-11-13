@@ -105,19 +105,11 @@ than just the monitor, so `init-identity` creates the renamed group and adds
 `webadmin` to it. Any other account you want to keep admin access must be added
 to the new group yourself.
 
-!!! warning "The gate protects against external callers, not other containers"
-    The monitor trusts `Remote-Groups` because Caddy overwrites it on every
-    request — but it has no way to tell that a request actually came from Caddy.
-    Anything that can reach `monitor:8080` on the Docker network can set the
-    header itself and be treated as an admin.
-
-    That includes Node-RED, which can issue arbitrary HTTP requests by design.
-    Keeping the monitor's container port unpublished is necessary but not
-    sufficient.
-
-    Closing this needs either a shared secret injected by Caddy and required by
-    the monitor, or network isolation so the monitor is unreachable from the
-    services an ordinary user can drive. Tracked in the issue tracker.
+The monitor trusts these headers only on a request that carries
+`MONITOR_PROXY_SECRET`, which Caddy adds and which only Caddy and the monitor
+hold ([DD-059](decisions.md)). Any other container on the Docker network can
+reach `monitor:8080`, but what it says about its identity is ignored, so it gets
+**403** on everything except `/api/ping`.
 
 ## Authorization: who may use Node-RED
 
