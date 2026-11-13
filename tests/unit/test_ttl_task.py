@@ -187,3 +187,51 @@ class TestTtlEnforcement:
 
         mock_ak.deactivate_user.assert_not_called()
         mock_tak.revoke_all_user_certs.assert_not_called()
+
+
+class TestSystemAccounts:
+    def test_an_expired_ttl_never_deactivates_an_account_the_stack_needs(self):
+        from app.scheduler import _check_user_expiry
+
+        mock_ak = MagicMock()
+        mock_tak = MagicMock()
+        mock_ak.get_users_pending_expiry.return_value = [
+            {"id": 9, "username": "webadmin", "is_active": True},
+            {"id": 10, "username": "adm_ldapservice", "is_active": True},
+        ]
+
+        _check_user_expiry(mock_ak, mock_tak)
+
+        mock_ak.deactivate_user.assert_not_called()
+        mock_tak.revoke_all_user_certs.assert_not_called()
+
+
+class TestLeftoverAccess:
+    """Accounts deactivated before deactivation cut anything (DD-061)."""
+
+    def _run(self, leftover, **ak_config):
+        from app.scheduler import _check_user_expiry
+
+        mock_ak = MagicMock(**ak_config)
+        mock_ak.get_users_pending_expiry.return_value = []
+        mock_ak.get_inactive_users_with_groups.return_value = leftover
+        _check_user_expiry(mock_ak, MagicMock())
+        return mock_ak
+
+    def test_inactive_account_with_groups_is_cut(self):
+        mock_ak = self._run([{"id": 3, "username": "left_last_year"}])
+        mock_ak.deactivate_user.assert_called_once_with(3)
+
+    def test_one_failure_does_not_stop_the_rest(self):
+        mock_ak = self._run(
+            [{"id": 3, "username": "a"}, {"id": 4, "username": "b"}],
+            **{"deactivate_user.side_effect": [RuntimeError("down"), None]},
+        )
+        assert mock_ak.deactivate_user.call_count == 2
+
+    def test_system_accounts_are_left_alone(self):
+        mock_ak = self._run([{"id": 5, "username": "svc_fasttakapi"}])
+        mock_ak.deactivate_user.assert_not_called()
+
+    def test_a_failed_listing_is_not_fatal(self):
+        self._run([], **{"get_inactive_users_with_groups.side_effect": RuntimeError("down")})

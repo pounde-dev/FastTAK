@@ -17,6 +17,7 @@ from app.api.service_accounts.cert_gen import (
     write_nodered_pems,
 )
 from app.api.users.identity import IdentityClient
+from app.api.users.offboarding import offboard, refuse_system_account
 from app.api.users.tak_server import TakServerClient
 from app.config import settings
 
@@ -314,19 +315,22 @@ def get_service_account(account_id: int):
 
 @router.delete("/api/service-accounts/{account_id}", summary="Delete service account")
 def delete_service_account(account_id: int):
-    """Deactivate a service account and revoke all its certificates.
+    """Deactivate a service account: cut its logins and revoke its certificates.
 
-    This does **not** hard-delete the LLDAP user — it deactivates it to
-    preserve the audit trail. All associated TAK Server certificates are revoked.
+    This does **not** hard-delete the LLDAP user, which preserves the audit
+    trail. Safe to repeat if revocation failed.
 
     Args:
         account_id: LLDAP user ID.
 
     Returns:
-        ``{"success": true, "username": "..."}`` on success.
+        ``{"success": true, "username": "...", "certs_revoked": bool}``. A false
+        ``certs_revoked`` means a cert may still work.
 
     Raises:
         HTTPException(404): If account_id doesn't exist or isn't a svc_ account.
+        HTTPException(409): If this is an account the stack depends on.
+        HTTPException(502): If deactivation did not finish.
     """
     ak = _get_identity()
     user = ak.get_user(account_id)
@@ -335,19 +339,16 @@ def delete_service_account(account_id: int):
     if not user["username"].startswith("svc_"):
         raise HTTPException(404, "Service account not found")
 
-    ak.deactivate_user(account_id)
+    refuse_system_account(user["username"])
 
-    tak = _get_tak_server()
-    if tak:
-        all_revoked = tak.revoke_all_user_certs(user["username"])
-        if all_revoked:
-            ak.mark_certs_revoked(account_id)
+    try:
+        certs_revoked = offboard(ak, _get_tak_server(), account_id, user["username"])
+    finally:
+        # Clean up the Node-RED PEM pair if it was provisioned. Idempotent —
+        # admin-mode accounts never had one, rm -f handles that case.
+        remove_nodered_pems(user["username"])
 
-    # Clean up the Node-RED PEM pair if it was provisioned. Idempotent —
-    # admin-mode accounts never had one, rm -f handles that case.
-    remove_nodered_pems(user["username"])
-
-    return {"success": True, "username": user["username"]}
+    return {"success": True, "username": user["username"], "certs_revoked": certs_revoked}
 
 
 @router.get(

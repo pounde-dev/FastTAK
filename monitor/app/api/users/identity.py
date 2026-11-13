@@ -6,6 +6,7 @@ CRUD and the ldap-proxy's REST API for enrollment token management.
 
 import hashlib
 import logging
+import secrets
 import time
 from datetime import UTC, datetime
 
@@ -456,11 +457,39 @@ class IdentityClient:
         return self.get_user(user_id)
 
     def deactivate_user(self, user_id: int) -> None:
-        """Deactivate user. Does NOT set fastak_certs_revoked — caller
-        must do that after confirming cert revocation succeeded."""
+        """Cut every credential the user holds, then mark them inactive.
+
+        LLDAP has no disabled state and ldap-proxy accepts a token before it
+        reaches LLDAP, so stopping logins takes all three steps: the password is
+        replaced with one nobody knows, groups are removed so a cert that
+        outlives this keeps no access, and tokens go (DD-061).
+
+        Every step is attempted even when an earlier one fails, because each
+        closes a separate way in. is_active is written only when all three
+        worked: the dashboard and the TTL job retry active users only, so a
+        failure must leave the user active. Safe to repeat.
+
+        Does NOT set fastak_certs_revoked: the caller does that after confirming
+        cert revocation succeeded.
+        """
         username = self._resolve_username(user_id)
         if username is None:
             raise ValueError(f"User {user_id} not found")
+
+        steps = {
+            "password": lambda: self.set_password(user_id, secrets.token_urlsafe(48)),
+            "groups": lambda: self._remove_all_groups(username),
+            "enrollment tokens": lambda: self.delete_enrollment_tokens(user_id),
+        }
+        failed = []
+        for name, cut in steps.items():
+            try:
+                cut()
+            except Exception:
+                log.exception("Deactivating %s: could not cut %s", username, name)
+                failed.append(name)
+        if failed:
+            raise RuntimeError(f"Could not cut {', '.join(failed)} for {username}")
 
         self._graphql(
             """
@@ -475,6 +504,43 @@ class IdentityClient:
                 }
             },
         )
+        # Enrollment is refused for inactive users from here on. A token minted
+        # between the first delete and that write would otherwise survive.
+        self.delete_enrollment_tokens(user_id)
+
+    def get_inactive_users_with_groups(self) -> list[dict]:
+        """Inactive users who still belong to a group.
+
+        Deactivation removes every group, so these were deactivated before it
+        did (or given groups since) and still hold their old access.
+        """
+        data = self._graphql(self._LIST_USERS_QUERY)
+        leftover = []
+        for u in data.get("users", []):
+            attrs = self._parse_attributes(u.get("attributes", []))
+            if attrs.get("is_active", True) is False and u.get("groups"):
+                leftover.append(self._format_user(u))
+        return leftover
+
+    def _remove_all_groups(self, username: str) -> None:
+        """Remove the user from every group, including non-tak_ ones like monitor_admin."""
+        data = self._graphql(self._GET_USER_QUERY, {"id": username})
+        groups = data.get("user", {}).get("groups", [])
+        if groups:
+            log.info(
+                "Removing %s from groups: %s",
+                username,
+                ", ".join(g["displayName"] for g in groups),
+            )
+        for group in groups:
+            self._graphql(
+                """
+                mutation($userId: String!, $groupId: Int!) {
+                    removeUserFromGroup(userId: $userId, groupId: $groupId) { ok }
+                }
+                """,
+                {"userId": username, "groupId": group["id"]},
+            )
 
     def set_password(self, user_id: int, password: str) -> None:
         """Set user password using the lldap_set_password binary (OPAQUE protocol)."""

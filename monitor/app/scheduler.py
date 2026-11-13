@@ -21,6 +21,7 @@ from app.api.health.disk import get_disk_usage
 from app.api.health.tls import get_tls_status
 from app.api.health.updates import check_updates
 from app.api.users.identity import IdentityClient
+from app.api.users.offboarding import is_system_account
 from app.api.users.tak_server import TakServerClient
 from app.config import settings
 from app.evaluator import evaluate
@@ -103,7 +104,8 @@ def _check_user_expiry(
     ak: IdentityClient | None = None,
     tak: TakServerClient | None = None,
 ):
-    """Check for expired TTL users and deactivate + revoke certs.
+    """Check for expired TTL users and deactivate + revoke certs, then cut any
+    access an inactive account still holds.
 
     When called by the scheduler (no args), module-level singletons are reused
     across ticks. Explicit arguments are accepted for test injection.
@@ -125,6 +127,12 @@ def _check_user_expiry(
         user_id = user["id"]
         username = user["username"]
         is_active = user.get("is_active", True)
+
+        if is_system_account(username):
+            log.warning(
+                "TTL expired on %s, which the stack depends on; leaving it alone", username
+            )
+            continue
 
         try:
             if is_active:
@@ -151,6 +159,33 @@ def _check_user_expiry(
         except Exception:
             log.exception("TTL check: error processing user %s (id=%d)", username, user_id)
             continue
+
+    _cut_leftover_access(ak)
+
+
+def _cut_leftover_access(ak: IdentityClient) -> None:
+    """Finish deactivating inactive accounts that still belong to a group.
+
+    Before DD-061, deactivating only set a flag, so accounts deactivated then
+    kept their password and groups. This applies the cut to them without an
+    operator having to find each one. It costs one user listing per tick and
+    does nothing once every inactive account has no groups.
+    """
+    try:
+        leftover = ak.get_inactive_users_with_groups()
+    except Exception:
+        log.warning("Could not list inactive users to check for leftover access")
+        return
+
+    for user in leftover:
+        username = user["username"]
+        if is_system_account(username):
+            continue
+        try:
+            ak.deactivate_user(user["id"])
+            log.info("Cut leftover access for inactive user %s", username)
+        except Exception:
+            log.exception("Could not cut leftover access for inactive user %s", username)
 
 
 def start_scheduler():
