@@ -305,6 +305,16 @@ mkdir -p "${CADDY_DIR}"
 # Full copy_headers list matching current Caddyfile
 COPY_HEADERS="Remote-User Remote-Groups"
 
+# Group allowed to use Node-RED. It goes into a URL in the Caddyfile, and the
+# editor runs code in the container, so a bad value stops startup.
+NODERED_ADMIN_GROUP="${NODERED_ADMIN_GROUP:-monitor_admin}"
+case "${NODERED_ADMIN_GROUP}" in
+  *[!a-zA-Z0-9._-]*)
+    echo "[init] ERROR: NODERED_ADMIN_GROUP may contain only letters, digits, '.', '_' and '-'" >&2
+    exit 1
+    ;;
+esac
+
 if [ "${DEPLOY_MODE}" = "direct" ]; then
   NODERED_PORT="${NODERED_PORT:-1880}"
   MONITOR_PORT="${MONITOR_PORT:-8180}"
@@ -343,7 +353,7 @@ https://${SERVER_ADDRESS} {
     redir https://${SERVER_ADDRESS}:${MONITOR_PORT}{uri}
 }
 
-# Node-RED with forward auth
+# Node-RED: code execution by design, so members of one group only (DD-058)
 https://${SERVER_ADDRESS}:${NODERED_PORT} {
     tls internal
     route {
@@ -352,7 +362,7 @@ https://${SERVER_ADDRESS}:${NODERED_PORT} {
         request_header -Remote-User
         request_header -Remote-Groups
         forward_auth ldap-proxy:8080 {
-            uri /auth/verify
+            uri /auth/verify?group=${NODERED_ADMIN_GROUP}
         }
         reverse_proxy nodered:1880 {
             header_up -Authorization
@@ -407,7 +417,7 @@ ${MEDIAMTX_SUBDOMAIN}.${SERVER_ADDRESS} {
     reverse_proxy mediamtx:8888
 }
 
-# Node-RED with forward auth
+# Node-RED: code execution by design, so members of one group only (DD-058)
 ${NODERED_SUBDOMAIN}.${SERVER_ADDRESS} {
     route {
         # Caddy before 2.11.2 let a client-sent copy of these through when
@@ -415,7 +425,7 @@ ${NODERED_SUBDOMAIN}.${SERVER_ADDRESS} {
         request_header -Remote-User
         request_header -Remote-Groups
         forward_auth ldap-proxy:8080 {
-            uri /auth/verify
+            uri /auth/verify?group=${NODERED_ADMIN_GROUP}
         }
         reverse_proxy nodered:1880 {
             header_up -Authorization

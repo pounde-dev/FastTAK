@@ -88,11 +88,25 @@ that worked before stops working.
   [MediaMTX access](configuration.md#mediamtx-access) for how the passwords
   are generated and how `MEDIAMTX_PUBLISH_IPS` works.
 - If you hid the MediaMTX ports in an override because they had no
-  authentication, leave them hidden until the Node-RED editor is limited to a
-  group ([#149](https://github.com/pounde/FastTAK/issues/149)). Until then, any
-  LDAP user can open the editor, read the MediaMTX API password and turn
-  anonymous access back on. After that you can publish 8554 again for viewing;
-  publishing stays off.
+  authentication, you can publish 8554 again for viewing; publishing stays off.
+
+### 5. Node-RED is limited to `monitor_admin` (this release and later)
+
+Users outside that group now get 403 on Node-RED, including dashboards and HTTP
+endpoints served by flows. Add the people who need it to the group, or set
+`NODERED_ADMIN_GROUP` in `.env` ([who may use Node-RED](authentication.md#authorization-who-may-use-node-red)).
+
+!!! warning "If this deployment was reachable before this release"
+    Any LDAP user could run code in the Node-RED container, and what they left
+    in its volume survives the upgrade. Export the flows you want to keep,
+    review them, then rebuild the volume:
+
+        docker compose down nodered
+        docker volume rm <project>_nodered-data
+        docker compose up -d nodered
+
+    Then re-import your flows. The container creates its starter flows on
+    first boot.
 
 ## What the scripts now handle for you
 

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // newVerifyHandler returns an AuthHandler whose bind succeeds through the token
@@ -97,5 +98,57 @@ func TestVerifyReportsOneSpellingOfAUsername(t *testing.T) {
 	}
 	if got := rr.Header().Get("Remote-User"); got != "alice" {
 		t.Errorf("Remote-User = %q, want alice", got)
+	}
+}
+
+func TestVerifyGroupParameterAdmitsMembers(t *testing.T) {
+	h, token := newVerifyHandler(t, "alice")
+	h.groupLookup = func(string) ([]string, error) { return []string{"tak_a", "editors"}, nil }
+
+	rr := verify(h, "/auth/verify?group=editors", "alice", token)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	if rr.Header().Get("Remote-User") != "alice" {
+		t.Error("a member should get identity headers")
+	}
+}
+
+func TestVerifyGroupParameterRefusesOthers(t *testing.T) {
+	cases := map[string][]string{
+		"other groups":   {"tak_a"},
+		"no groups":      nil,
+		"partial name":   {"editors_extra"},
+		"different case": {"Editors"},
+	}
+	for name, groups := range cases {
+		t.Run(name, func(t *testing.T) {
+			h, token := newVerifyHandler(t, "alice")
+			h.groupLookup = func(string) ([]string, error) { return groups, nil }
+
+			rr := verify(h, "/auth/verify?group=editors", "alice", token)
+
+			if rr.Code != http.StatusForbidden {
+				t.Fatalf("status = %d, want 403", rr.Code)
+			}
+			if rr.Header().Get("Remote-User") != "" {
+				t.Error("a refusal must not carry identity headers")
+			}
+		})
+	}
+}
+
+func TestVerifyGroupRefusalDoesNotCountAsAFailedLogin(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
+	limiter := NewRateLimiter(time.Minute, 5*time.Minute, 1, fakeClock(&now))
+	h, token := newVerifyHandler(t, "alice")
+	h.limiter = limiter
+	h.groupLookup = func(string) ([]string, error) { return nil, nil }
+
+	verify(h, "/auth/verify?group=editors", "alice", token)
+
+	if allowed, _ := limiter.CheckLockout(clientIP(httptest.NewRequest("GET", "/", nil))); !allowed {
+		t.Error("a 403 locked the client out")
 	}
 }

@@ -108,6 +108,7 @@ services:
       MONITOR_PORT: ${MONITOR_PORT:-8180}
       TAKSERVER_ADMIN_PORT: ${TAKSERVER_ADMIN_PORT:-8446}
       MEDIAMTX_PORT: ${MEDIAMTX_PORT:-8888}
+      NODERED_ADMIN_GROUP: ${NODERED_ADMIN_GROUP:-monitor_admin}
     volumes:
       - *tak-mount
 
@@ -270,6 +271,7 @@ services:
       LDAP_BASE_DN: ${LDAP_BASE_DN:-DC=takldap}
       SERVER_ADDRESS: ${SERVER_ADDRESS}
       BACKUP_ADMIN_GROUP: ${BACKUP_ADMIN_GROUP:-monitor_admin}
+      NODERED_ADMIN_GROUP: ${NODERED_ADMIN_GROUP:-monitor_admin}
     volumes:
       - *tak-mount
 

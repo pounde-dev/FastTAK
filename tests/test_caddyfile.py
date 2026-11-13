@@ -79,3 +79,40 @@ def test_caddy_is_pinned_by_digest_at_or_above_the_forward_auth_fix():
     match = re.fullmatch(r"caddy:(\d+)\.(\d+)\.(\d+)-alpine@sha256:[0-9a-f]{64}", image)
     assert match, f"not an exact version with a digest: {image}"
     assert tuple(int(part) for part in match.groups()) >= CADDY_FLOOR
+
+
+def _route(tmp_path: Path, mode: str, backend: str, **env) -> str:
+    blocks = site_blocks(render(tmp_path, mode, **env)).values()
+    return next(body for body in blocks if f"reverse_proxy {backend}" in body)
+
+
+@pytest.mark.parametrize("mode", ["direct", "subdomain"])
+def test_node_red_is_limited_to_one_group(tmp_path, mode):
+    route = _route(tmp_path, mode, "nodered:1880")
+    assert "uri /auth/verify?group=monitor_admin\n" in route
+
+
+@pytest.mark.parametrize("mode", ["direct", "subdomain"])
+def test_node_red_group_comes_from_the_environment(tmp_path, mode):
+    route = _route(tmp_path, mode, "nodered:1880", NODERED_ADMIN_GROUP="flow_authors")
+    assert "uri /auth/verify?group=flow_authors\n" in route
+
+
+@pytest.mark.parametrize("mode", ["direct", "subdomain"])
+def test_monitor_authorizes_for_itself(tmp_path, mode):
+    """The monitor gates each route on groups (DD-047), so Caddy only authenticates."""
+    route = _route(tmp_path, mode, "monitor:8080")
+    assert "uri /auth/verify\n" in route
+    assert "copy_headers Remote-User Remote-Groups" in route
+
+
+@pytest.mark.parametrize("group", ["a&b=c", "a b", "a\n}", "a/b", "a?x"])
+def test_unsafe_node_red_group_stops_startup(tmp_path, group):
+    with pytest.raises(subprocess.CalledProcessError) as failure:
+        render(tmp_path, "direct", NODERED_ADMIN_GROUP=group)
+    assert "NODERED_ADMIN_GROUP" in failure.value.stderr
+
+
+def test_every_authenticated_route_is_recorded():
+    """A new forward_auth route must say who may use it, here and in authentication.md."""
+    assert SECTION.count("forward_auth ldap-proxy:8080") == 4
