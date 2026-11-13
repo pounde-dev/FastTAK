@@ -131,6 +131,8 @@ def deployment(tmp_path):
         "MEDIAMTX_VIEWER_PASSWORD",
         "MEDIAMTX_PUBLISHER_PASSWORD",
         "MEDIAMTX_API_PASSWORD",
+        "MONITOR_PROXY_SECRET",
+        "LLDAP_JWT_SECRET",
     ):
         env = env.replace(f"{key}=", f"{key}=" + "a1" * 16)
     (tmp_path / ".env").write_text(env)

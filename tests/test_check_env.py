@@ -32,6 +32,9 @@ MEDIAMTX_KEYS = (
 )
 
 
+SERVICE_SECRETS = ("MONITOR_PROXY_SECRET", "LLDAP_JWT_SECRET")
+
+
 def _run(env_content: str, tmp_path: Path) -> subprocess.CompletedProcess:
     """Run the validator against `env_content`.
 
@@ -46,11 +49,12 @@ def _run(env_content: str, tmp_path: Path) -> subprocess.CompletedProcess:
         env_content = f"{env_content}TAK_VERSION={VALID_TAK_VERSION}\n"
     if "MEDIAMTX_VERSION" not in env_content:
         env_content = f"{env_content}MEDIAMTX_VERSION={VALID_MEDIAMTX_VERSION}\n"
-    for key in MEDIAMTX_KEYS:
+    for key in (*MEDIAMTX_KEYS, *SERVICE_SECRETS):
         if key not in env_content:
             env_content = f"{env_content}{key}={'a1' * 16}\n"
     env_file = tmp_path / ".env"
     env_file.write_text(env_content)
+    env_file.chmod(0o600)
     return subprocess.run(
         ["/bin/bash", str(CHECK), str(env_file)],
         capture_output=True,
@@ -485,3 +489,44 @@ def test_mediamtx_password_must_be_url_safe(tmp_path, value):
 def test_generated_mediamtx_passwords_pass(tmp_path):
     result = _run(BASE_OK, tmp_path)
     assert result.returncode == 0, result.stderr
+
+
+# ── Secrets between services, and the file's mode ───────────────────────────
+
+VALID = "SERVER_ADDRESS=tak.mydomain.com\nDEPLOY_MODE=subdomain\n"
+
+
+@pytest.mark.parametrize("key", SERVICE_SECRETS)
+def test_empty_service_secret_fails_and_names_the_key(tmp_path, key):
+    result = _run(f"{VALID}{key}=\n", tmp_path)
+    assert result.returncode == 1
+    assert key in result.stderr
+    assert "ensure-secrets.sh" in result.stderr
+
+
+@pytest.mark.parametrize("value", ["has space", "brace}", "quote'q", "semi;colon"])
+def test_proxy_secret_that_would_change_the_caddyfile_fails(tmp_path, value):
+    """Caddy substitutes the value as text before it parses the file."""
+    result = _run(f'{VALID}MONITOR_PROXY_SECRET="{value}"\n', tmp_path)
+    assert result.returncode == 1
+    assert "MONITOR_PROXY_SECRET" in result.stderr
+
+
+def test_generated_style_proxy_secret_passes(tmp_path):
+    result = _run(f"{VALID}MONITOR_PROXY_SECRET=0aF9-_{'b2' * 20}\n", tmp_path)
+    assert result.returncode == 0, result.stderr
+
+
+def test_world_readable_env_warns_but_passes(tmp_path):
+    env_file = tmp_path / ".env"
+    _run(VALID, tmp_path)
+    env_file.chmod(0o644)
+    result = subprocess.run(
+        ["/bin/bash", str(CHECK), str(env_file)], capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr
+    assert "chmod 600" in result.stderr
+
+
+def test_private_env_does_not_warn(tmp_path):
+    assert "chmod 600" not in _run(VALID, tmp_path).stderr
