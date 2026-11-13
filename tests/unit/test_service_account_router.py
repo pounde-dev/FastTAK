@@ -375,6 +375,39 @@ class TestDeleteServiceAccount:
         mock_tak.revoke_all_user_certs.assert_called_once_with("svc_bot1")
         mock_ak.mark_certs_revoked.assert_called_once_with(1)
 
+    @pytest.mark.parametrize("unregistered", [True, False])
+    def test_admin_account_loses_its_admin_role(self, mock_clients, unregistered):
+        mock_ak, mock_tak = mock_clients
+        mock_ak.get_user.return_value = {
+            "id": 1,
+            "username": "svc_ops",
+            "fastak_user_type": "svc_admin",
+        }
+        mock_tak.revoke_all_user_certs.return_value = True
+        with patch(
+            "app.api.service_accounts.router.unregister_admin_cert",
+            return_value={"success": unregistered},
+        ) as unregister:
+            resp = client.delete("/api/service-accounts/1")
+        unregister.assert_called_once_with("svc_ops")
+        assert resp.json()["certs_revoked"] is unregistered
+
+    def test_admin_role_goes_even_when_the_credential_cut_fails(self, mock_clients):
+        mock_ak, mock_tak = mock_clients
+        mock_ak.get_user.return_value = {
+            "id": 1,
+            "username": "svc_ops",
+            "fastak_user_type": "svc_admin",
+        }
+        mock_ak.deactivate_user.side_effect = RuntimeError("lldap down")
+        mock_tak.revoke_all_user_certs.return_value = True
+        with patch(
+            "app.api.service_accounts.router.unregister_admin_cert",
+            return_value={"success": True},
+        ) as unregister:
+            assert client.delete("/api/service-accounts/1").status_code == 502
+        unregister.assert_called_once_with("svc_ops")
+
     def test_refuses_the_monitors_own_account(self, mock_clients):
         """Revoking this cert would cut the monitor off from TAK Server."""
         mock_ak, mock_tak = mock_clients

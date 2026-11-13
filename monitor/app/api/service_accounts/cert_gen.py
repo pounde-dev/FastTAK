@@ -343,9 +343,14 @@ def remove_nodered_pems(name: str, container=None) -> dict:
 def revoke_certs_on_disk_for_user(username: str, container=None) -> dict:
     """Revoke all on-disk certs for a user via CRL (openssl ca -revoke + gencrl).
 
-    Enumerates `{CERT_FILES}/{username}-*.pem` — the naming pattern used by
-    `generate_client_cert` when called with `cn_override=username`. Each match
-    is revoked via `_revoke_via_crl`. The CRL is regenerated on each revoke
+    Enumerates `{CERT_FILES}/{username}-*.pem`, the naming pattern for user
+    certs, plus `{username}.pem` for service accounts, then keeps only certs
+    whose CN is the username. The filename alone is not proof of ownership:
+    deactivating `alice` must not revoke `alice-b`'s `alice-b-phone.pem`, and
+    only `svc_` names are safe to match exactly, because a user named
+    `takserver` would otherwise match the server's own cert.
+
+    Each match is revoked via `_revoke_via_crl`. The CRL is regenerated on each revoke
     (one-cert-at-a-time through _revoke_via_crl); for TTL-scale revocations
     this is acceptable overhead.
 
@@ -361,17 +366,12 @@ def revoke_certs_on_disk_for_user(username: str, container=None) -> dict:
         if error:
             return {**error, "revoked": 0, "errors": [error.get("error", "")]}
 
+    name_filter = ["-name", f"{username}-*.pem"]
+    if username.startswith("svc_"):
+        name_filter = ["(", *name_filter, "-o", "-name", f"{username}.pem", ")"]
+
     exit_code, output = container.exec_run(
-        [
-            "find",
-            CERT_FILES,
-            "-maxdepth",
-            "1",
-            "-type",
-            "f",
-            "-name",
-            f"{username}-*.pem",
-        ],
+        ["find", CERT_FILES, "-maxdepth", "1", "-type", "f", *name_filter],
     )
     if exit_code != 0:
         err_msg = output.decode(errors="replace")[:300]
@@ -382,21 +382,41 @@ def revoke_certs_on_disk_for_user(username: str, container=None) -> dict:
         return {"success": True, "revoked": 0, "errors": []}
 
     errors = []
+    revoked = 0
     for path in paths:
         name = path.rsplit("/", 1)[-1].removesuffix(".pem")
+        cn = _read_cert_cn(container, path)
+        if cn is None:
+            errors.append(f"{name}: could not read the certificate subject")
+            continue
+        if cn != username:
+            continue
         result = _revoke_via_crl(name, container=container)
-        if not result["success"]:
+        if result["success"]:
+            revoked += 1
+        else:
             errors.append(f"{name}: {result.get('error', '')[:200]}")
 
-    return {
-        "success": len(errors) == 0,
-        "revoked": len(paths) - len(errors),
-        "errors": errors,
-    }
+    return {"success": len(errors) == 0, "revoked": revoked, "errors": errors}
+
+
+def _read_cert_cn(container, path: str) -> str | None:
+    """Return the CN of a cert in the TAK container, or None if it can't be read."""
+    exit_code, output = container.exec_run(
+        ["openssl", "x509", "-in", path, "-noout", "-subject", "-nameopt", "RFC2253"],
+    )
+    if exit_code != 0:
+        return None
+    match = re.search(r"(?:^|[=,])\s*CN=([^,\n]+)", output.decode(errors="replace"))
+    return match.group(1).strip() if match else None
 
 
 def _revoke_via_crl(name: str, container=None) -> dict:
     """Revoke a cert and update the CRL using openssl directly.
+
+    A cert that is already revoked counts as success, and the CRL is still
+    regenerated, so a retry after a partial failure can finish. Without this a
+    user with one earlier revocation could never reach "all certs revoked".
 
     All operations run in a single shell command from the cert files
     directory where crl_index.txt lives. This avoids issues with separate
@@ -418,12 +438,14 @@ def _revoke_via_crl(name: str, container=None) -> dict:
                 " && (grep -q unique_subject crl_index.txt.attr"
                 ' || echo "unique_subject = no" >> crl_index.txt.attr)'
                 ' && sed -i "/^$/d" "${NAME}.pem"'
-                " && openssl ca"
+                " && { OUT=$(openssl ca"
                 ' -config "${CERT_DIR}/config.cfg"'
                 ' -revoke "${NAME}.pem"'
                 " -keyfile ca-do-not-share.key"
                 " -key atakatak"
                 " -cert ca.pem"
+                ' 2>&1) || echo "$OUT" | grep -q "Already revoked"'
+                ' || { echo "$OUT"; exit 1; }; }'
                 " && openssl ca"
                 ' -config "${CERT_DIR}/config.cfg"'
                 " -gencrl"
@@ -444,6 +466,31 @@ def _revoke_via_crl(name: str, container=None) -> dict:
                 "error": output.decode(errors="replace")[:500],
             }
         return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": str(e)[:300]}
+
+
+def unregister_admin_cert(name: str) -> dict:
+    """Remove a cert's ROLE_ADMIN registration via certmod -D."""
+    container, error = _get_tak_container()
+    if error:
+        return error
+
+    try:
+        exit_code, output = container.exec_run(
+            [
+                "java",
+                "-jar",
+                "/opt/tak/utils/UserManager.jar",
+                "certmod",
+                "-D",
+                f"{CERT_FILES}/{name}.pem",
+            ],
+        )
+        return {
+            "success": exit_code == 0,
+            "output": output.decode(errors="replace")[:500],
+        }
     except Exception as e:
         return {"success": False, "error": str(e)[:300]}
 

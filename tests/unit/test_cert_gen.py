@@ -1,13 +1,19 @@
 """Tests for service account certificate generation."""
 
+import os
+import shutil
+import subprocess
 from unittest.mock import MagicMock, patch
 
+import pytest
 from app.api.service_accounts.cert_gen import (
+    _revoke_via_crl,
     generate_client_cert,
     parse_ca_subject,
     register_admin_cert,
     remove_nodered_pems,
     revoke_certs_on_disk_for_user,
+    unregister_admin_cert,
     write_nodered_pems,
 )
 
@@ -108,15 +114,28 @@ class TestGenerateClientCert:
         assert "P12 creation failed" in result["error"]
 
 
+def _disk_container(paths: list[str], cn_of=lambda path: "jsmith"):
+    """A TAK container whose find returns `paths` and whose certs have the given CN."""
+
+    def exec_run(cmd, **_):
+        if cmd[0] == "find":
+            return 0, "".join(f"{p}\n" for p in paths).encode()
+        cn = cn_of(cmd[cmd.index("-in") + 1])
+        if cn is None:
+            return 1, b"unable to load certificate"
+        return 0, f"subject=CN={cn},OU=FastTAK,O=TAK,ST=XX,C=US\n".encode()
+
+    container = MagicMock()
+    container.exec_run.side_effect = exec_run
+    return container
+
+
 class TestRevokeCertsOnDiskForUser:
     @patch("app.api.service_accounts.cert_gen._revoke_via_crl")
     @patch("app.api.service_accounts.cert_gen.find_container")
     def test_revokes_all_matching_pems(self, mock_find, mock_revoke):
-        container = MagicMock()
-        mock_find.return_value = container
-        container.exec_run.return_value = (
-            0,
-            b"/opt/tak/certs/files/jsmith-laptop.pem\n/opt/tak/certs/files/jsmith-phone.pem\n",
+        mock_find.return_value = _disk_container(
+            ["/opt/tak/certs/files/jsmith-laptop.pem", "/opt/tak/certs/files/jsmith-phone.pem"]
         )
         mock_revoke.return_value = {"success": True}
 
@@ -147,11 +166,9 @@ class TestRevokeCertsOnDiskForUser:
     @patch("app.api.service_accounts.cert_gen._revoke_via_crl")
     @patch("app.api.service_accounts.cert_gen.find_container")
     def test_reports_per_cert_errors(self, mock_find, mock_revoke):
-        container = MagicMock()
-        mock_find.return_value = container
-        container.exec_run.return_value = (
-            0,
-            b"/opt/tak/certs/files/u-a.pem\n/opt/tak/certs/files/u-b.pem\n",
+        mock_find.return_value = _disk_container(
+            ["/opt/tak/certs/files/u-a.pem", "/opt/tak/certs/files/u-b.pem"],
+            cn_of=lambda path: "u",
         )
         mock_revoke.side_effect = [
             {"success": True},
@@ -164,6 +181,58 @@ class TestRevokeCertsOnDiskForUser:
         assert result["revoked"] == 1
         assert len(result["errors"]) == 1
         assert "u-b" in result["errors"][0]
+
+    @patch("app.api.service_accounts.cert_gen._revoke_via_crl")
+    @patch("app.api.service_accounts.cert_gen.find_container")
+    def test_service_account_cert_has_no_suffix(self, mock_find, mock_revoke):
+        container = _disk_container(
+            ["/opt/tak/certs/files/svc_bot.pem"], cn_of=lambda path: "svc_bot"
+        )
+        mock_find.return_value = container
+        mock_revoke.return_value = {"success": True}
+
+        result = revoke_certs_on_disk_for_user("svc_bot")
+
+        assert result["revoked"] == 1
+        assert mock_revoke.call_args.args[0] == "svc_bot"
+        find_args = container.exec_run.call_args_list[0].args[0]
+        assert "svc_bot.pem" in find_args
+
+    @patch("app.api.service_accounts.cert_gen._revoke_via_crl")
+    @patch("app.api.service_accounts.cert_gen.find_container")
+    def test_user_never_matches_an_exact_filename(self, mock_find, mock_revoke):
+        """A user named takserver must not reach the server's own takserver.pem."""
+        container = _disk_container([], cn_of=lambda path: "takserver")
+        mock_find.return_value = container
+
+        revoke_certs_on_disk_for_user("takserver")
+
+        assert "takserver.pem" not in container.exec_run.call_args_list[0].args[0]
+
+    @patch("app.api.service_accounts.cert_gen._revoke_via_crl")
+    @patch("app.api.service_accounts.cert_gen.find_container")
+    def test_leaves_another_users_cert_alone(self, mock_find, mock_revoke):
+        """Deactivating alice must not revoke alice-b's alice-b-phone.pem."""
+        mock_find.return_value = _disk_container(
+            ["/opt/tak/certs/files/alice-laptop.pem", "/opt/tak/certs/files/alice-b-phone.pem"],
+            cn_of=lambda path: "alice-b" if "alice-b" in path else "alice",
+        )
+        mock_revoke.return_value = {"success": True}
+
+        result = revoke_certs_on_disk_for_user("alice")
+
+        assert result["revoked"] == 1
+        assert [c.args[0] for c in mock_revoke.call_args_list] == ["alice-laptop"]
+
+    @patch("app.api.service_accounts.cert_gen._revoke_via_crl")
+    @patch("app.api.service_accounts.cert_gen.find_container")
+    def test_unreadable_cert_is_an_error_not_a_skip(self, mock_find, mock_revoke):
+        mock_find.return_value = _disk_container(
+            ["/opt/tak/certs/files/jsmith-laptop.pem"], cn_of=lambda path: None
+        )
+        result = revoke_certs_on_disk_for_user("jsmith")
+        assert result["success"] is False
+        mock_revoke.assert_not_called()
 
     @patch("app.api.service_accounts.cert_gen.find_container")
     def test_validates_username(self, mock_find):
@@ -307,3 +376,88 @@ class TestRegisterAdminCert:
         result = register_admin_cert("svc_admin")
         assert result["success"] is False
         assert "not found" in result["error"]
+
+
+class TestUnregisterAdminCert:
+    @patch("app.api.service_accounts.cert_gen.find_container")
+    def test_runs_certmod_delete(self, mock_find):
+        container = MagicMock()
+        mock_find.return_value = container
+        container.exec_run.return_value = (0, b"ok")
+        assert unregister_admin_cert("svc_ops")["success"] is True
+        cmd = container.exec_run.call_args.args[0]
+        assert cmd[-3:] == ["certmod", "-D", "/opt/tak/certs/files/svc_ops.pem"][-3:]
+
+    @patch("app.api.service_accounts.cert_gen.find_container")
+    def test_reports_failure(self, mock_find):
+        container = MagicMock()
+        mock_find.return_value = container
+        container.exec_run.return_value = (1, b"no such user")
+        assert unregister_admin_cert("svc_ops")["success"] is False
+
+
+@pytest.mark.skipif(shutil.which("openssl") is None, reason="needs openssl")
+class TestRevokeViaCrlWithRealOpenssl:
+    """Runs the real shell and openssl. A mock cannot show what the && chain does."""
+
+    @pytest.fixture
+    def pki(self, tmp_path, monkeypatch):
+        def run(*args):
+            subprocess.run(args, cwd=tmp_path, check=True, capture_output=True)
+
+        (tmp_path / "config.cfg").write_text(
+            "[ ca ]\ndefault_ca = CA_default\n[ CA_default ]\n"
+            "database = crl_index.txt\ndefault_md = sha256\ndefault_crl_days = 730\n"
+        )
+        run("openssl", "genrsa", "-aes256", "-passout", "pass:atakatak",
+            "-out", "ca-do-not-share.key", "2048")  # fmt: skip
+        run("openssl", "req", "-x509", "-new", "-key", "ca-do-not-share.key",
+            "-passin", "pass:atakatak", "-subj", "/CN=ca", "-days", "30",
+            "-out", "ca.pem")  # fmt: skip
+        run("openssl", "req", "-newkey", "rsa:2048", "-nodes", "-keyout", "c.key",
+            "-subj", "/C=US/ST=XX/O=TAK/OU=F/CN=svc_bot", "-out", "c.csr")  # fmt: skip
+        run("openssl", "x509", "-req", "-in", "c.csr", "-CA", "ca.pem",
+            "-CAkey", "ca-do-not-share.key", "-passin", "pass:atakatak",
+            "-set_serial", "0x1D9070DD44F99BE7", "-days", "5", "-out", "svc_bot.pem")  # fmt: skip
+        monkeypatch.setattr("app.api.service_accounts.cert_gen.CERT_FILES", str(tmp_path))
+        monkeypatch.setattr("app.api.service_accounts.cert_gen.CERT_DIR", str(tmp_path))
+        return tmp_path
+
+    @staticmethod
+    def _container():
+        def exec_run(cmd, environment=None):
+            # BSD sed reads "-i pattern" differently, and these PEMs have no blank lines.
+            script = cmd[2].replace('sed -i "/^$/d" "${NAME}.pem"', "true")
+            done = subprocess.run(
+                ["sh", "-c", script],
+                env={**os.environ, **environment},
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            return done.returncode, done.stdout
+
+        container = MagicMock()
+        container.exec_run.side_effect = exec_run
+        return container
+
+    def test_second_revoke_succeeds(self, pki):
+        container = self._container()
+        assert _revoke_via_crl("svc_bot", container=container)["success"] is True
+        assert _revoke_via_crl("svc_bot", container=container)["success"] is True
+
+    def test_retry_rebuilds_a_missing_crl(self, pki):
+        """The revoke can land in the index with the CRL write then failing."""
+        container = self._container()
+        _revoke_via_crl("svc_bot", container=container)
+        (pki / "ca.crl").unlink()
+        assert _revoke_via_crl("svc_bot", container=container)["success"] is True
+        listed = subprocess.run(
+            ["openssl", "crl", "-in", str(pki / "ca.crl"), "-noout", "-text"],
+            capture_output=True,
+            text=True,
+        )
+        assert "1D9070DD44F99BE7" in listed.stdout
+
+    def test_other_failures_are_still_failures(self, pki):
+        result = _revoke_via_crl("no_such_cert", container=self._container())
+        assert result["success"] is False

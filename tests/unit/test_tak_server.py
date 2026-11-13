@@ -60,6 +60,46 @@ class TestListUserCerts:
         assert certs == []
 
 
+class TestRevokeAllUserCertsReportsFailures:
+    PEM_CERT = {
+        "id": 42,
+        "certificate": "PEM",
+        "revocationDate": None,
+    }
+
+    @pytest.fixture
+    def crl(self):
+        with (
+            patch(
+                "app.api.service_accounts.cert_gen.revoke_certs_on_disk_for_user",
+                return_value={"success": True, "revoked": 0, "errors": []},
+            ),
+            patch(
+                "app.api.service_accounts.cert_gen.revoke_cert_by_pem",
+                return_value={"success": True},
+            ) as by_pem,
+        ):
+            yield by_pem
+
+    def test_failed_listing_is_not_success(self, client, mock_http, crl):
+        """Empty results from an outage used to read as "every cert revoked"."""
+        import httpx
+
+        mock_http["get"].side_effect = httpx.HTTPError("connection failed")
+        assert client.revoke_all_user_certs("jsmith") is False
+
+    def test_marks_certadmin_after_the_crl(self, client, mock_http, crl):
+        mock_http["get"].return_value = {"data": [self.PEM_CERT]}
+        assert client.revoke_all_user_certs("jsmith") is True
+        mock_http["delete"].assert_called_once_with("/Marti/api/certadmin/cert/revoke/42")
+
+    def test_certadmin_is_untouched_when_the_crl_fails(self, client, mock_http, crl):
+        crl.return_value = {"success": False, "error": "no"}
+        mock_http["get"].return_value = {"data": [self.PEM_CERT]}
+        assert client.revoke_all_user_certs("jsmith") is False
+        mock_http["delete"].assert_not_called()
+
+
 class TestRevokeCert:
     def test_revokes_by_id(self, client, mock_http):
         mock_http["delete"].return_value = None
