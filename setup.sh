@@ -292,6 +292,9 @@ if [ ! -f "$TARGET_DIR/.env" ]; then
   # below by ensure-secrets.sh, which runs for fresh installs and upgrades
   # alike.
   fill_secret TAK_WEBADMIN_PASSWORD "$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24)"
+  # Fresh install only, for a harder reason: changing this on an existing
+  # directory invalidates every password (DD-060).
+  fill_secret LLDAP_KEY_SEED "$(openssl rand -hex 32)"
 else
   # Upgrade: update TAK_VERSION if changed
   CURRENT_VERSION=$(env_get "$TARGET_DIR/.env" TAK_VERSION)

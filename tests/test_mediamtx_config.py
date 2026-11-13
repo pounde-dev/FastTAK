@@ -96,6 +96,7 @@ def test_publishing_is_off_by_default():
 # empty, so these need a value before a MediaMTX password can be the reason.
 OTHER_REQUIRED_SECRETS = {
     "MONITOR_PROXY_SECRET": "a1" * 16,
+    "LLDAP_JWT_SECRET": "a1" * 16,
 }
 
 

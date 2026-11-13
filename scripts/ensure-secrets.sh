@@ -42,8 +42,12 @@ fi
 # TAK_WEBADMIN_PASSWORD is deliberately absent. Empty means "skip webadmin user
 # creation" (see .env.example), so filling it on an upgrade would undo a
 # deliberate choice. setup.sh still generates it on fresh installs only.
-SECRET_KEYS=(TAK_DB_PASSWORD APP_DB_PASSWORD LDAP_BIND_PASSWORD TOKENS_API_SECRET MEDIAMTX_VIEWER_PASSWORD MEDIAMTX_PUBLISHER_PASSWORD MEDIAMTX_API_PASSWORD MONITOR_PROXY_SECRET)
-SECRET_BYTES=(16 16 16 32 16 16 16 32)
+#
+# LLDAP_KEY_SEED is deliberately absent too. LLDAP derives its password key from
+# it, so changing it on an existing directory invalidates every password. It is
+# fresh-install-only for the same reason (DD-060).
+SECRET_KEYS=(TAK_DB_PASSWORD APP_DB_PASSWORD LDAP_BIND_PASSWORD TOKENS_API_SECRET MEDIAMTX_VIEWER_PASSWORD MEDIAMTX_PUBLISHER_PASSWORD MEDIAMTX_API_PASSWORD MONITOR_PROXY_SECRET LLDAP_JWT_SECRET)
+SECRET_BYTES=(16 16 16 32 16 16 16 32 32)
 
 # env_reject_newline <key> <value>
 #

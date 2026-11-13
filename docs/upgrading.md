@@ -116,6 +116,16 @@ it. Anything that called the monitor directly with `Remote-Groups` from inside
 the Docker network now gets 403, which is the point
 ([DD-059](decisions.md)).
 
+### 7. LLDAP has its own JWT secret (this release and later)
+
+`./start.sh` adds `LLDAP_JWT_SECRET` to your `.env`. Open LLDAP sessions end;
+nothing else changes.
+
+Leave `LLDAP_KEY_SEED` empty on an existing deployment. Fresh installs generate
+one, but setting it on a directory that already has users stops LLDAP from
+starting, and forcing it invalidates every password
+([DD-060](decisions.md)).
+
 ## What the scripts now handle for you
 
 These used to be manual steps and are no longer:
