@@ -35,6 +35,10 @@ def _username_to_numeric_id(username: str) -> int:
     return int.from_bytes(digest[:7], "big") & 0x1FFFFFFFFFFFFF
 
 
+class UserExistsError(Exception):
+    """Raised when creating a user whose name is already taken."""
+
+
 class IdentityClient:
     """User and group management via LLDAP GraphQL + ldap-proxy REST."""
 
@@ -344,8 +348,14 @@ class IdentityClient:
         groups: list[str] | None = None,
         user_type: str | None = None,
     ) -> dict:
-        """Create a passwordless user."""
-        self._graphql(
+        """Create a passwordless user.
+
+        Raises UserExistsError when the name is taken. `_graphql` reports a
+        duplicate as success with no data, and carrying on would rewrite the
+        existing account: its groups, its TTL and, for a service account, its
+        certificate files.
+        """
+        created = self._graphql(
             """
             mutation($user: CreateUserInput!) {
                 createUser(user: $user) { id creationDate }
@@ -359,6 +369,8 @@ class IdentityClient:
                 }
             },
         )
+        if not (created or {}).get("createUser"):
+            raise UserExistsError(username)
 
         # Set custom attributes
         attrs = {"fastak_certs_revoked": False}

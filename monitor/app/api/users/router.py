@@ -1,5 +1,6 @@
 """User management API routes — /api/users and /api/groups."""
 
+import glob
 import io
 import re
 import time
@@ -14,7 +15,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
 
 from app.api.users.enrollment import build_enrollment_url
-from app.api.users.identity import IdentityClient
+from app.api.users.identity import IdentityClient, UserExistsError
 from app.api.users.offboarding import offboard, refuse_system_account
 from app.api.users.tak_server import TakServerClient
 from app.config import settings
@@ -89,7 +90,19 @@ class SetPasswordRequest(BaseModel):
 
 
 class CreateGroupRequest(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=64)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v):
+        # Group names travel comma-joined in Remote-Groups and inside LDAP DNs,
+        # so a comma in one would read as membership of a second group.
+        if not re.match(r"^[a-zA-Z0-9._-]+( [a-zA-Z0-9._-]+)*$", v):
+            raise ValueError(
+                "Name must contain only letters, numbers, dots, hyphens, underscores "
+                "and single spaces between words"
+            )
+        return v
 
 
 class SetGroupsRequest(BaseModel):
@@ -180,13 +193,16 @@ def create_user(body: CreateUserRequest):
         msg = f"Groups do not exist: {', '.join(missing)}. Create them first."
         raise HTTPException(400, msg)
 
-    return ak.create_user(
-        username=body.username,
-        name=body.name,
-        ttl_hours=body.ttl_hours,
-        groups=body.groups,
-        user_type="user",
-    )
+    try:
+        return ak.create_user(
+            username=body.username,
+            name=body.name,
+            ttl_hours=body.ttl_hours,
+            groups=body.groups,
+            user_type="user",
+        )
+    except UserExistsError:
+        raise HTTPException(409, f"An account named '{body.username}' already exists") from None
 
 
 @router.get("/api/users/{user_id}", summary="Get user")
@@ -589,8 +605,9 @@ def generate_user_cert(user_id: int, body: GenerateCertRequest):
     username = user["username"]
     cert_filename = f"{username}-{body.name}"
 
-    # Check if a cert with this name already exists
-    if (CERT_FILES_PATH / f"{cert_filename}.p12").exists():
+    # Any file under this name, not only a .p12: user "ca" with cert name
+    # "do-not-share" would otherwise write over ca-do-not-share.key.
+    if any(CERT_FILES_PATH.glob(f"{glob.escape(cert_filename)}.*")):
         raise HTTPException(409, f"Certificate '{body.name}' already exists for this user")
 
     # Determine validity — don't exceed user's expiry if set
@@ -681,7 +698,7 @@ def revoke_user_cert(user_id: int, body: RevokeCertRequest):
         from app.api.service_accounts.cert_gen import revoke_cert_by_name
 
         cert_filename = f"{user['username']}-{body.cert_name}"
-        result = revoke_cert_by_name(cert_filename)
+        result = revoke_cert_by_name(cert_filename, owner=user["username"])
         if not result["success"]:
             raise HTTPException(500, f"Revocation failed: {result.get('error', '')}")
 

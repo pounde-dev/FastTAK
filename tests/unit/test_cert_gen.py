@@ -12,6 +12,7 @@ from app.api.service_accounts.cert_gen import (
     parse_ca_subject,
     register_admin_cert,
     remove_nodered_pems,
+    revoke_cert_by_name,
     revoke_certs_on_disk_for_user,
     unregister_admin_cert,
     write_nodered_pems,
@@ -376,6 +377,32 @@ class TestRegisterAdminCert:
         result = register_admin_cert("svc_admin")
         assert result["success"] is False
         assert "not found" in result["error"]
+
+
+class TestNameCollisions:
+    @patch("app.api.service_accounts.cert_gen.find_container")
+    def test_generation_never_writes_over_existing_files(self, mock_find, tmp_path):
+        (tmp_path / "ca-do-not-share.key").write_bytes(b"the CA key")
+        with patch("app.api.service_accounts.cert_gen.CERT_FILES_PATH", tmp_path):
+            result = generate_client_cert("ca-do-not-share")
+        assert result["success"] is False
+        mock_find.assert_not_called()
+
+    @patch("app.api.service_accounts.cert_gen._revoke_via_crl")
+    @patch("app.api.service_accounts.cert_gen.find_container")
+    def test_revoke_by_name_refuses_another_users_cert(self, mock_find, mock_revoke):
+        mock_find.return_value = _disk_container([], cn_of=lambda path: "alice-b")
+        result = revoke_cert_by_name("alice-b-phone", owner="alice")
+        assert result["success"] is False
+        mock_revoke.assert_not_called()
+
+    @patch("app.api.service_accounts.cert_gen._revoke_via_crl")
+    @patch("app.api.service_accounts.cert_gen.find_container")
+    def test_revoke_by_name_accepts_the_owners_cert(self, mock_find, mock_revoke):
+        mock_find.return_value = _disk_container([], cn_of=lambda path: "alice")
+        mock_revoke.return_value = {"success": True}
+        assert revoke_cert_by_name("alice-phone", owner="alice")["success"] is True
+        mock_revoke.assert_called_once_with("alice-phone")
 
 
 class TestUnregisterAdminCert:

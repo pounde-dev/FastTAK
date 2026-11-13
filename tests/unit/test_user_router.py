@@ -696,6 +696,19 @@ class TestUserCertGeneration:
             r = client.post("/api/users/1/certs/generate", json={"name": "tablet"})
         assert r.status_code == 409
 
+    def test_409_when_the_name_lands_on_any_existing_file(self, mock_clients, tmp_path):
+        """User "ca" with cert name "do-not-share" names the CA's private key."""
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {"id": 1, "username": "ca", "is_active": True}
+        (tmp_path / "ca-do-not-share.key").write_bytes(b"the CA key")
+        with (
+            patch("app.api.users.router.CERT_FILES_PATH", tmp_path),
+            patch("app.api.service_accounts.cert_gen.generate_client_cert") as mock_gen,
+        ):
+            r = client.post("/api/users/1/certs/generate", json={"name": "do-not-share"})
+        assert r.status_code == 409
+        mock_gen.assert_not_called()
+
     def test_400_for_deactivated_user(self, mock_clients):
         mock_ak, _ = mock_clients
         mock_ak.get_user.return_value = {
@@ -913,3 +926,36 @@ class TestGroups:
         assert resp.status_code == 400
         assert "at least one group" in resp.json()["detail"].lower()
         mock_ak.set_user_groups.assert_not_called()
+
+
+class TestNameCollisions:
+    def test_creating_an_existing_user_is_a_conflict(self, mock_clients):
+        from app.api.users.identity import UserExistsError
+
+        mock_ak, _ = mock_clients
+        mock_ak.list_groups.return_value = [{"name": "ops"}]
+        mock_ak.create_user.side_effect = UserExistsError("jsmith")
+        resp = client.post(
+            "/api/users", json={"username": "jsmith", "name": "J", "groups": ["ops"]}
+        )
+        assert resp.status_code == 409
+
+    @pytest.mark.parametrize(
+        "name", ["a,monitor_admin", "a=b", " lead", "trail ", "two  spaces", ""]
+    )
+    def test_group_names_that_could_read_as_two_groups_are_refused(self, mock_clients, name):
+        mock_ak, _ = mock_clients
+        assert client.post("/api/groups", json={"name": name}).status_code == 422
+        mock_ak.create_group.assert_not_called()
+
+    def test_revoking_by_name_names_the_owner(self, mock_clients):
+        """Alice's "b-phone" is the same file as alice-b's "phone"."""
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {"id": 1, "username": "alice", "is_active": True}
+        with patch(
+            "app.api.service_accounts.cert_gen.revoke_cert_by_name",
+            return_value={"success": True},
+        ) as revoke:
+            resp = client.post("/api/users/1/certs/revoke", json={"cert_name": "b-phone"})
+        assert resp.status_code == 200
+        revoke.assert_called_once_with("alice-b-phone", owner="alice")

@@ -616,3 +616,20 @@ class TestDownloadCert:
         with patch("app.api.service_accounts.router.CERT_FILES_PATH", tmp_path):
             resp = client.get("/api/service-accounts/1/certs/download")
         assert resp.status_code == 404
+
+
+class TestNameCollisions:
+    def test_creating_an_existing_account_is_a_conflict_and_writes_no_cert(self, mock_clients):
+        """Carrying on would regenerate the existing account's key, e.g. the
+        monitor's own svc_fasttakapi."""
+        from app.api.users.identity import UserExistsError
+
+        mock_ak, _ = mock_clients
+        mock_ak.create_user.side_effect = UserExistsError("svc_fasttakapi")
+        with patch("app.api.service_accounts.router.generate_client_cert") as generate:
+            resp = client.post(
+                "/api/service-accounts",
+                json={"name": "fasttakapi", "display_name": "x", "mode": "admin"},
+            )
+        assert resp.status_code == 409
+        generate.assert_not_called()

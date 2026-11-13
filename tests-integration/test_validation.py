@@ -85,3 +85,23 @@ class TestValidation:
     def test_removed_endpoint(self, api, method, path):
         status, _data = api(method, path)
         assert status in (404, 405), f"{method} {path} should return 404/405, got {status}"
+
+
+class TestNameCollisions:
+    def test_creating_an_existing_user_is_a_conflict(self, api, user_group, run_id):
+        body = {"username": f"tstdup_{run_id}", "name": "Dup", "groups": [user_group]}
+        status, created = api("POST", "/api/users", body)
+        assert status == 201, created
+        try:
+            status, data = api("POST", "/api/users", body)
+            assert status == 409, data
+        finally:
+            api("DELETE", f"/api/users/{created['id']}")
+
+    def test_the_monitors_own_service_account_cannot_be_recreated(self, api):
+        status, data = api(
+            "POST",
+            "/api/service-accounts",
+            {"name": "fasttakapi", "display_name": "x", "mode": "admin"},
+        )
+        assert status == 409, data

@@ -5,6 +5,7 @@ All operations run inside the tak-server container where the CA key resides.
 Shared CRL utilities are imported by both the users and service accounts routers.
 """
 
+import glob
 import re
 import subprocess
 from pathlib import Path
@@ -58,6 +59,11 @@ def _validate_name(name: str) -> str | None:
     return None
 
 
+def existing_cert_files(name: str) -> list[str]:
+    """Files already stored under a cert name, whatever their extension."""
+    return sorted(p.name for p in CERT_FILES_PATH.glob(f"{glob.escape(name)}.*"))
+
+
 def _get_tak_container():
     container = find_container("tak-server")
     if container is None:
@@ -109,6 +115,11 @@ def generate_client_cert(
         return {"success": False, "error": f"CN override: {err}"}
 
     cn = cn_override or name
+
+    # Never write over existing files: the CA key, the server cert and every
+    # other account's key live in this directory under predictable names.
+    if existing := existing_cert_files(name):
+        return {"success": False, "error": f"Files already exist for '{name}': {existing[0]}"}
 
     container, error = _get_tak_container()
     if error:
@@ -199,15 +210,21 @@ def generate_client_cert(
         return {"success": False, "error": str(e)[:300]}
 
 
-def revoke_cert_by_name(name: str) -> dict:
+def revoke_cert_by_name(name: str, owner: str | None = None) -> dict:
     """Revoke a cert by name via CRL update.
 
-    The cert's .pem file must exist at {CERT_FILES}/{name}.pem.
-    Revocation is immediate — TAK Server rejects revoked certs on next
-    connection attempt.
+    The cert's .pem file must exist at {CERT_FILES}/{name}.pem. When `owner`
+    is given, the cert's CN must be that username: "alice" + "b-phone" names
+    the same file as "alice-b" + "phone".
     """
     if err := _validate_name(name):
         return {"success": False, "error": err}
+    if owner is not None:
+        container, error = _get_tak_container()
+        if error:
+            return error
+        if _read_cert_cn(container, f"{CERT_FILES}/{name}.pem") != owner:
+            return {"success": False, "error": "Certificate not found for this user"}
     return _revoke_via_crl(name)
 
 

@@ -4,7 +4,7 @@ import time
 from unittest.mock import MagicMock, patch
 
 import pytest
-from app.api.users.identity import IdentityClient, _username_to_numeric_id
+from app.api.users.identity import IdentityClient, UserExistsError, _username_to_numeric_id
 
 
 @pytest.fixture
@@ -211,6 +211,13 @@ class TestCreateUser:
         variables = create_call[0][1] if len(create_call[0]) > 1 else {}
         user_input = variables.get("user", {})
         assert "password" not in user_input
+
+    def test_existing_name_is_an_error_and_the_account_is_untouched(self, client, mock_http):
+        """_graphql reports a duplicate as success with no data."""
+        mock_http["graphql"].return_value = {}
+        with pytest.raises(UserExistsError):
+            client.create_user("svc_fasttakapi", "x", ttl_hours=1, groups=["ops"])
+        assert mock_http["graphql"].call_count == 1
 
     def test_creates_user_with_ttl(self, client, mock_http):
         mock_http["graphql"].side_effect = [
