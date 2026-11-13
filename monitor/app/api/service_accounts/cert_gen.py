@@ -465,7 +465,9 @@ def _revoke_via_crl(name: str, container=None) -> dict:
                 ' || { echo "$OUT"; exit 1; }; }'
                 " && openssl ca"
                 ' -config "${CERT_DIR}/config.cfg"'
-                " -gencrl"
+                # Ten years, like the CA: TAK Server reads this file directly, and
+                # a list past its nextUpdate may refuse every client (DD-063).
+                " -gencrl -crldays 3650"
                 " -keyfile ca-do-not-share.key"
                 " -key atakatak"
                 " -cert ca.pem"

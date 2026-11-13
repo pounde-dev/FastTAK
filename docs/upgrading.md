@@ -147,6 +147,18 @@ password login on port 8446 (WebTAK and the TAK admin UI) for fifteen minutes
 ([DD-062](decisions.md)). Certificates keep working. New passwords must be at
 least 12 characters; existing ones are unchanged, so replace any short ones.
 
+### 10. Revoked certs are now refused by TAK Server (this release and later)
+
+Until now TAK Server was never told to read the revocation list, so a cert
+revoked in the monitor or with `./certs.sh revoke` could still connect
+([DD-063](decisions.md)). `./start.sh` now adds the list to `CoreConfig.xml` and
+checks it is there.
+
+After upgrading, any cert you revoked in the past is refused from TAK Server's
+next start. If you revoked a cert because a device was lost, treat the time since
+then as exposure. If you revoked one by mistake and it still worked, it will now
+stop.
+
 ## What the scripts now handle for you
 
 These used to be manual steps and are no longer:

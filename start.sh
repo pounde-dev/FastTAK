@@ -251,6 +251,7 @@ run_checks() {
   assert_grep 'enableAdminUI="true"' "$DEPLOY_DIR/tak/CoreConfig.xml" "Admin UI enabled" "grep -n 'enableAdminUI' tak/CoreConfig.xml"
   assert_grep '<certificateSigning CA="TAKServer">' "$DEPLOY_DIR/tak/CoreConfig.xml" "Certificate signing" "grep -n 'certificateSigning' tak/CoreConfig.xml"
   assert_grep "adm_ldapservice" "$DEPLOY_DIR/tak/CoreConfig.xml" "LDAP auth" "grep -n 'adm_ldapservice' tak/CoreConfig.xml"
+  assert_grep 'crlFile="certs/files/ca.crl"' "$DEPLOY_DIR/tak/CoreConfig.xml" "Revocation list read by TAK Server" "docker compose logs init-config | grep -i revocation"
   assert_grep 'adminGroup="ROLE_ADMIN"' "$DEPLOY_DIR/tak/CoreConfig.xml" "ROLE_ADMIN" "grep -n 'adminGroup' tak/CoreConfig.xml"
 
   log ""
