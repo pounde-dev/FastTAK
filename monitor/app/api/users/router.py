@@ -85,8 +85,13 @@ class UpdateUserRequest(BaseModel):
     ttl_hours: int | None = None  # null in JSON = clear TTL; omit field = leave unchanged
 
 
+# Passwords are accepted on TAK Server's port 8446, which is published to the
+# internet, so a short one can be guessed from anywhere.
+MIN_PASSWORD_LENGTH = 12
+
+
 class SetPasswordRequest(BaseModel):
-    password: str = Field(min_length=1)
+    password: str = Field(min_length=MIN_PASSWORD_LENGTH)
 
 
 class CreateGroupRequest(BaseModel):
@@ -320,7 +325,7 @@ def set_password(user_id: int, body: SetPasswordRequest):
 
     Args:
         user_id: LLDAP user ID.
-        body: Password to set (min 1 character).
+        body: Password to set (at least 12 characters).
 
     Returns:
         ``{"success": true}`` on success.

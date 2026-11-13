@@ -135,6 +135,16 @@ By default, 10 failures per 5 minutes triggers a 15-minute lockout.
 Tunable via `LDAP_RATE_LIMIT_*` env vars (see `.env.example`).
 Exceeding the limit returns HTTP 429 with a `Retry-After` header.
 
+Password logins through TAK Server (WebTAK and the admin UI on port 8446)
+reach `ldap-proxy` from TAK Server's address, so those are counted per
+**account name** instead, with the same limits
+([DD-062](decisions.md)). A locked name cannot log in with a password or an
+enrollment token until the lockout ends; certificate logins are unaffected.
+New passwords must be at least 12 characters.
+
+Enrollment tokens work only for enrolling a device with TAK Server. They are
+not accepted as a login to the monitor or Node-RED.
+
 **Recovering from accidental lockout:** if you trip the limit during
 testing (wrong password, debugging client configs), restart
 `ldap-proxy` to clear the in-memory state:

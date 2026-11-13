@@ -7,6 +7,7 @@ import time
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+from test_ldap_auth import attempt_ldap_bind
 from test_nodered_gate import PROBE
 
 pytestmark = pytest.mark.integration
@@ -57,10 +58,12 @@ def test_enrollment_token_stops_working(api, compose_exec, user):
     status, data = api("POST", f"/api/users/{uid}/enroll")
     assert status == 200, data
     token = parse_qs(urlparse(data["enrollment_url"]).query)["token"][0]
-    assert _verify(compose_exec, username, token) == "200"
+    # Tokens work on the LDAP listener TAK Server enrolls through, and nowhere else.
+    assert attempt_ldap_bind(compose_exec, username, token) == 0
+    assert _verify(compose_exec, username, token) == "401"
     status, data = api("DELETE", f"/api/users/{uid}")
     assert status == 200, data
-    assert _verify(compose_exec, username, token) == "401"
+    assert attempt_ldap_bind(compose_exec, username, token) == 49
 
 
 def test_groups_are_removed(api, user):

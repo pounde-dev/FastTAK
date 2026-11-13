@@ -2,6 +2,22 @@
 
 Significant architectural and design decisions, with reasoning. Newest first.
 
+## DD-062: Password guessing through TAK Server is limited per account
+
+**Date:** 2026-11-11
+**Status:** Decided
+
+**Decision:** `ldap-proxy` counts failed binds on its LDAP listener per account name and locks the name out with the same limits as `/auth/verify` (`LDAP_RATE_LIMIT_*`: 10 failures in 5 minutes, 15 minutes locked). The service account TAK Server searches with is exempt. The monitor refuses passwords shorter than 12 characters. An enrollment token is accepted on the LDAP listener only; `/auth/verify` checks the password against LLDAP and ignores tokens.
+
+**Why:** TAK Server's port 8446 is published in every deployment and takes passwords. Each attempt reaches `ldap-proxy` as a bind from TAK Server, which DD-037's limiter never saw because it covers only `/auth/verify`, and the monitor accepted one-character passwords. The client's address is not visible on the LDAP side, so the account name is the only key available. Tokens were also a 15-minute password for the monitor and Node-RED: a QR code shown for an admin opened both to whoever photographed it.
+
+**Consequences:** Someone who knows a username can keep that user's password login locked by guessing. Certificate logins never bind as the user, so devices in the field stay connected, and the monitor and Node-RED stay reachable because their limit is per address. `docker compose restart ldap-proxy` clears a lockout. Existing short passwords keep working until changed. The exempt service account relies on its generated password.
+
+**Alternatives considered:**
+- Limiting per source address: not possible here; every bind comes from TAK Server.
+- Putting 8446 behind Caddy only: rejected by DD-038, because enrollment needs TAK Server's own certificate on that port.
+- A password-strength score: rejected. Length is the part that matters against guessing and needs no dependency.
+
 ## DD-061: Deactivation cuts credentials instead of setting a flag
 
 **Date:** 2026-11-05

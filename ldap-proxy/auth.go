@@ -77,7 +77,7 @@ func (a *AuthHandler) HandleVerify(w http.ResponseWriter, r *http.Request) {
 	}
 	bindDN := fmt.Sprintf("uid=%s,ou=people,%s", username, a.proxy.baseDN)
 
-	ok, err := a.proxy.HandleBind(bindDN, password)
+	ok, err := a.proxy.BindPassword(bindDN, password)
 	if err != nil {
 		log.Printf("auth verify error for %s: %v", username, err)
 		http.Error(w, "Internal error", http.StatusInternalServerError)

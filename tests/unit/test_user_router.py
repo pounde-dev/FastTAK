@@ -359,9 +359,9 @@ class TestSetPassword:
             "is_active": True,
             "groups": [],
         }
-        resp = client.post("/api/users/1/password", json={"password": "secret123"})
+        resp = client.post("/api/users/1/password", json={"password": "a-long-enough-secret"})
         assert resp.status_code == 200
-        mock_ak.set_password.assert_called_once_with(1, "secret123")
+        mock_ak.set_password.assert_called_once_with(1, "a-long-enough-secret")
 
     def test_400_for_deactivated_user(self, mock_clients):
         mock_ak, _ = mock_clients
@@ -372,13 +372,13 @@ class TestSetPassword:
             "is_active": False,
             "groups": [],
         }
-        resp = client.post("/api/users/1/password", json={"password": "secret"})
+        resp = client.post("/api/users/1/password", json={"password": "a-long-enough-secret"})
         assert resp.status_code == 400
 
     def test_404_for_hidden_user(self, mock_clients):
         mock_ak, _ = mock_clients
         mock_ak.get_user.return_value = None
-        resp = client.post("/api/users/1/password", json={"password": "secret"})
+        resp = client.post("/api/users/1/password", json={"password": "a-long-enough-secret"})
         assert resp.status_code == 404
 
 
@@ -959,3 +959,14 @@ class TestNameCollisions:
             resp = client.post("/api/users/1/certs/revoke", json={"cert_name": "b-phone"})
         assert resp.status_code == 200
         revoke.assert_called_once_with("alice-b-phone", owner="alice")
+
+
+class TestPasswordLength:
+    @pytest.mark.parametrize("password", ["", "x", "elevenchars"])
+    def test_short_passwords_are_refused(self, mock_clients, password):
+        """Passwords are accepted on 8446 from the internet."""
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {"id": 1, "username": "jsmith", "is_active": True}
+        resp = client.post("/api/users/1/password", json={"password": password})
+        assert resp.status_code == 422
+        mock_ak.set_password.assert_not_called()

@@ -18,6 +18,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/jimlambrt/gldap"
 
@@ -26,7 +27,7 @@ import (
 
 // startLDAPServer starts the LDAP protocol listener and blocks until the
 // server is stopped or encounters a fatal error.
-func startLDAPServer(listenAddr string, proxy *LDAPProxy, auth *connAuth) error {
+func startLDAPServer(listenAddr string, proxy *LDAPProxy, auth *connAuth, limiter *RateLimiter) error {
 	// WithOnClose lets us drop per-connection auth state when a client
 	// disconnects, so connAuth.authed does not grow unbounded.
 	s, err := gldap.NewServer(gldap.WithOnClose(func(connID int) {
@@ -42,7 +43,7 @@ func startLDAPServer(listenAddr string, proxy *LDAPProxy, auth *connAuth) error 
 	}
 
 	// Bind: intercept with proxy.HandleBind (token store → LLDAP fallback)
-	if err := r.Bind(makeBindHandler(proxy, auth)); err != nil {
+	if err := r.Bind(makeBindHandler(proxy, auth, limiter)); err != nil {
 		return fmt.Errorf("register bind handler: %w", err)
 	}
 
@@ -70,7 +71,17 @@ func startLDAPServer(listenAddr string, proxy *LDAPProxy, auth *connAuth) error 
 
 // makeBindHandler returns a gldap handler that authenticates bind requests
 // through the proxy (token check first, then LLDAP fallback).
-func makeBindHandler(proxy *LDAPProxy, auth *connAuth) gldap.HandlerFunc {
+//
+// If limiter is non-nil, failed binds are counted per account name and the
+// name is locked out once it passes the limit. TAK Server binds here for every
+// password login on 8446, which is published to the internet, and the client's
+// address is not visible from this side, so the name is the only key there is.
+// Certificate logins do not bind as the user and are unaffected. The service
+// account TAK Server searches with is exempt: locking it would take every
+// login down, and its password is generated.
+func makeBindHandler(proxy *LDAPProxy, auth *connAuth, limiter *RateLimiter) gldap.HandlerFunc {
+	serviceAccount := bindKey(proxy.adminBindDN, proxy.baseDN)
+
 	return func(w *gldap.ResponseWriter, r *gldap.Request) {
 		connID := r.ConnectionID()
 		resp := r.NewBindResponse(
@@ -97,6 +108,16 @@ func makeBindHandler(proxy *LDAPProxy, auth *connAuth) gldap.HandlerFunc {
 			return
 		}
 
+		key := bindKey(m.UserName, proxy.baseDN)
+		limited := limiter != nil && key != serviceAccount
+		if limited {
+			if allowed, retryAfter := limiter.CheckLockout(key); !allowed {
+				auth.setAuthed(connID, false)
+				log.Printf("[conn=%d] bind: %q is locked out for %s after repeated failures", connID, key, retryAfter.Round(time.Second))
+				return
+			}
+		}
+
 		ok, err := proxy.HandleBind(m.UserName, string(m.Password))
 		if err != nil {
 			log.Printf("[conn=%d] bind: error for %s: %v", connID, m.UserName, err)
@@ -112,6 +133,9 @@ func makeBindHandler(proxy *LDAPProxy, auth *connAuth) gldap.HandlerFunc {
 			log.Printf("[conn=%d] bind: success for %s", connID, m.UserName)
 		} else {
 			auth.setAuthed(connID, false)
+			if limited {
+				limiter.RecordFailure(key)
+			}
 			log.Printf("[conn=%d] bind: invalid credentials for %s", connID, m.UserName)
 		}
 	}

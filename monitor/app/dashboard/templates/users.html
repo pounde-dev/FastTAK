@@ -203,6 +203,7 @@
 
     async setPassword() {
         if (!this.selectedUser || !this.passwordValue) return;
+        if (this.passwordValue.length < 12) { this.actionResult = 'Password must be at least 12 characters'; this.actionError = true; return; }
         this.actionLoading = true; this.actionResult = ''; this.actionError = false;
         try {
             const r = await fetch(`/api/users/${this.selectedUser.id}/password`, {
@@ -478,7 +479,7 @@
             <div>
                 <h2>Password</h2>
                 <div class="flex mb-8">
-                    <input type="password" x-model="passwordValue" placeholder="New password" style="flex: 1;">
+                    <input type="password" x-model="passwordValue" placeholder="New password (12+ characters)" minlength="12" style="flex: 1;">
                     <button :disabled="!passwordValue || actionLoading" @click="setPassword()">Set</button>
                 </div>
                 <p class="text-muted" style="font-size: 11px;">Most users don't need a password. Device users authenticate via certificate only. Passwords are only required for browser-based access (WebTAK, admin UI on port 8446).</p>

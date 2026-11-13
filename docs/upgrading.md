@@ -140,6 +140,13 @@ One case it cannot see: an account you deactivated earlier and had already
 removed from every group still has its old password. Deactivate it again through
 the API (`DELETE /api/users/<id>`), or set it a new password.
 
+### 9. Password logins are limited per account (this release and later)
+
+Ten wrong passwords for one account within five minutes lock that account's
+password login on port 8446 (WebTAK and the TAK admin UI) for fifteen minutes
+([DD-062](decisions.md)). Certificates keep working. New passwords must be at
+least 12 characters; existing ones are unchanged, so replace any short ones.
+
 ## What the scripts now handle for you
 
 These used to be manual steps and are no longer:
