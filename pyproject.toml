@@ -1,6 +1,6 @@
 [project]
 name = "fastak-dev"
-version = "0.31.1"
+version = "0.32.0"
 requires-python = ">=3.12"
 
 # Mirror of monitor/requirements.txt so tests can import monitor code.

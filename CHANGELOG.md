@@ -2,6 +2,47 @@
 
 <!-- version list -->
 
+## v0.32.0 (2026-11-13)
+
+### Bug Fixes
+
+- **dronesense**: Only real numbers reach CoT attributes; drop the relay URL from remarks
+  ([`c386291`](https://github.com/pounde/FastTAK/commit/c386291ff30b1363b489c8416688e81b0877ce9c))
+
+- **mediamtx**: Final-review fixes for auth docs, video-cot.sh and tests
+  ([`394325a`](https://github.com/pounde/FastTAK/commit/394325a8d5585b195877ce93d8a2675e6d1debd2))
+
+### Documentation
+
+- **mediamtx**: DD-056, DroneSense re-import, publish control, rotation
+  ([#143](https://github.com/pounde/FastTAK/pull/143),
+  [`06b5f5c`](https://github.com/pounde/FastTAK/commit/06b5f5c5637c51d3fb439bc624eb06d5732d5706))
+
+### Features
+
+- **dronesense**: Viewer credential in CoT video, authenticated reconcile
+  ([#143](https://github.com/pounde/FastTAK/pull/143),
+  [`bfe0c5a`](https://github.com/pounde/FastTAK/commit/bfe0c5ab719f0d6520c1ad2c03b9334cbc9af6b1))
+
+- **mediamtx**: Generate and require viewer, publisher and API passwords
+  ([#143](https://github.com/pounde/FastTAK/pull/143),
+  [`f04ac57`](https://github.com/pounde/FastTAK/commit/f04ac57e0106ef120462358eded21c932cc43757))
+
+- **mediamtx**: No anonymous access; Digest; publishing off by default
+  ([#143](https://github.com/pounde/FastTAK/pull/143),
+  [`018f658`](https://github.com/pounde/FastTAK/commit/018f658e8e0f3c77b407ef8ae5cbbf65424a225d))
+
+- **video-cot**: Publish with the publisher credential, send viewer URL
+  ([#143](https://github.com/pounde/FastTAK/pull/143),
+  [`fef6d65`](https://github.com/pounde/FastTAK/commit/fef6d65eedeb358d259b40cb3e7bedbfaff742ba))
+
+### Testing
+
+- **mediamtx**: End-to-end auth matrix, publish default, rotation
+  ([#143](https://github.com/pounde/FastTAK/pull/143),
+  [`0114964`](https://github.com/pounde/FastTAK/commit/011496415989b90edaa5f927b664c36581e60f0c))
+
+
 ## v0.31.1 (2026-11-13)
 
 ### Bug Fixes
