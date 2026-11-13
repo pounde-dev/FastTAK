@@ -16,11 +16,13 @@ Schema (fastak_events):
 from __future__ import annotations
 
 import hmac
+import ipaddress
 import json
 import logging
 from typing import Any
 
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 
 from app import config
 from app.fastak_db import execute
@@ -106,15 +108,47 @@ def request_came_through_caddy(request) -> bool:
     return bool(expected) and hmac.compare_digest(sent.encode(), expected.encode())
 
 
+def _client_address(request) -> str | None:
+    """The address to record for a request.
+
+    Through Caddy, the peer is always Caddy's container, so the browser's
+    address is the last X-Forwarded-For entry: the one Caddy wrote itself.
+    Anything else on the Docker network can send that header too, so it only
+    counts with the proxy secret.
+    """
+    peer = request.client.host if request.client else None
+    if not request_came_through_caddy(request):
+        return peer
+    forwarded = request.headers.get("X-Forwarded-For", "").split(",")[-1].strip()
+    try:
+        ipaddress.ip_address(forwarded)
+    except ValueError:
+        return peer
+    return forwarded
+
+
 class AuthContextMiddleware(BaseHTTPMiddleware):
     """Pull Remote-User / Remote-Groups headers into request.state.
 
     Caddy's forward_auth flow sets these headers (ldap-proxy generates them).
     A request that did not come through Caddy has no identity: it falls through
     to 'unknown' with no groups, which every admin gate refuses.
+
+    Also refuses changes requested by another site. The browser attaches an
+    admin's Basic credentials to any request for this origin, including one a
+    page elsewhere makes, and routes that take no body (vacuum, backup run)
+    need nothing else. Browsers label where a request came from; clients that
+    send no label, such as curl, are not browsers and are let through.
     """
 
     async def dispatch(self, request, call_next):
+        if (
+            request.method in MUTATING_METHODS
+            and request.headers.get("Sec-Fetch-Site") in OTHER_SITES
+        ):
+            return JSONResponse(
+                {"detail": "Requests from another site are not accepted"}, status_code=403
+            )
         request.state.username = "unknown"
         request.state.groups = []
         if request_came_through_caddy(request):
@@ -126,7 +160,7 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
                 "Ignored identity headers from %s: no valid proxy secret",
                 request.client.host if request.client else "unknown",
             )
-        request.state.client_ip = request.client.host if request.client else None
+        request.state.client_ip = _client_address(request)
         return await call_next(request)
 
 
@@ -138,6 +172,28 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
 REDACT_FIELDS = {"password", "passcode", "token", "secret", "api_key", "p12", "private_key"}
 
 MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+# Sec-Fetch-Site values for a request another site caused. "same-site" is a
+# sibling subdomain, such as a Node-RED dashboard.
+OTHER_SITES = {"cross-site", "same-site"}
+
+# Every route takes a small JSON body or none. The body is read before the
+# route's own checks run, so without a limit any caller could fill memory.
+MAX_BODY_BYTES = 1024 * 1024
+
+
+async def _read_capped(request) -> bytes | None:
+    """The request body, or None when it is larger than MAX_BODY_BYTES."""
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_BODY_BYTES:
+        return None
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > MAX_BODY_BYTES:
+            return None
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _sanitise(payload):
@@ -163,11 +219,15 @@ class AuditMiddleware(BaseHTTPMiddleware):
         if method not in MUTATING_METHODS:
             return await call_next(request)
 
-        # Read body bytes once. await request.body() consumes the ASGI
-        # stream; replaying via request._receive lets the downstream
-        # handler still parse the body. (Known BaseHTTPMiddleware caveat
-        # — fine for small JSON bodies, shaky for streaming uploads.)
-        body_bytes = await request.body()
+        # Read body bytes once, up to the limit. Reading consumes the ASGI
+        # stream; caching it on the request, as request.body() would, and
+        # replaying via request._receive lets the downstream handler still
+        # parse it. (Known BaseHTTPMiddleware caveat — fine for small JSON
+        # bodies, shaky for streaming uploads.)
+        body_bytes = await _read_capped(request)
+        if body_bytes is None:
+            return JSONResponse({"detail": "Request body too large"}, status_code=413)
+        request._body = body_bytes  # type: ignore[attr-defined]
 
         async def _replay():
             return {"type": "http.request", "body": body_bytes, "more_body": False}

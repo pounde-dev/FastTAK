@@ -2,6 +2,21 @@
 
 Significant architectural and design decisions, with reasoning. Newest first.
 
+## DD-064: The monitor refuses changes requested by another site
+
+**Date:** 2026-11-11
+**Status:** Decided
+
+**Decision:** The monitor answers 403 to any `POST`, `PUT`, `PATCH` or `DELETE` whose `Sec-Fetch-Site` header is `cross-site` or `same-site`. Requests without the header pass. It also refuses bodies over 1 MiB, and records the address Caddy saw (the last `X-Forwarded-For` entry, honoured only with the proxy secret) instead of Caddy's own.
+
+**Why:** Login is HTTP Basic, which the browser attaches to every request for the monitor's origin, including one made by a page on another site. Routes with a JSON body were already safe, because a cross-site page cannot send `application/json` without a preflight, but routes with no body (database vacuum, backup run, alert tests) needed nothing else. The body was read before any route check ran, with no limit. Audit rows all carried Caddy's container address, which made them useless for tracing a login.
+
+**Consequences:** A browser too old to send `Sec-Fetch-Site` is not protected. `same-site` is refused too, so a page served from a sibling subdomain, such as a Node-RED dashboard, cannot drive the monitor from a browser; flows that call the API from the server are unaffected.
+
+**Alternatives considered:**
+- CSRF tokens: rejected. They need session state and a change to every form and fetch in the dashboard, for the same protection in current browsers.
+- Checking `Origin` against `SERVER_ADDRESS`: rejected. It needs the public origin configured correctly in both deploy modes, and a wrong value locks the dashboard out.
+
 ## DD-063: TAK Server reads the revocation list
 
 **Date:** 2026-11-11
