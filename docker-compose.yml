@@ -298,7 +298,10 @@ services:
 
   # ── Networking (reverse proxy + SSL) ───────────────────────────────────
   caddy:
-    image: caddy:2-alpine
+    # Pinned by digest: a floating tag leaves each host on whatever it last
+    # pulled, and tests/test_caddyfile.py keeps this at or above the 2.11.2
+    # forward_auth fix.
+    image: caddy:2.11.8-alpine@sha256:3db3a09e418f86a8fce8de4bc0026fccd2b4cd925aef00cc7d843d9fdc75e442
     restart: unless-stopped
     logging: *default-logging
     deploy:

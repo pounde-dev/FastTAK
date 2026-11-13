@@ -81,6 +81,11 @@ proves _who_ you are — any valid LDAP bind passes, so every TAK user clears it
 and then copies `Remote-User` and `Remote-Groups` to the monitor. The monitor
 decides _what_ you may do from that group list.
 
+Caddy removes any `Remote-User` or `Remote-Groups` the client sent before it
+calls ldap-proxy, and removes `Authorization` before it calls a backend, so
+backends never see your password ([DD-057](decisions.md)). If ldap-proxy cannot
+read your groups, it answers 503 rather than treating you as a member of none.
+
 The monitor is an admin console: every JSON API and every dashboard page
 requires membership in `ADMIN_GROUP` (default `monitor_admin`). That covers user
 and certificate management, ops operations, health telemetry, the audit event

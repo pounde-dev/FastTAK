@@ -137,8 +137,9 @@ func (rl *RateLimiter) RecordFailure(ip string) {
 // clientIP extracts the rate-limit key from a request.
 //
 // If X-Forwarded-For is present and its first entry is a valid IP, that IP is
-// used (Caddy is the only upstream that reaches ldap-proxy, so this header is
-// trusted). Otherwise the host portion of r.RemoteAddr is used.
+// used. Caddy replaces the header with the address it saw, because its
+// forward_auth blocks trust no proxies; a client-sent value never arrives here
+// through Caddy. Otherwise the host portion of r.RemoteAddr is used.
 func clientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		first := strings.TrimSpace(strings.SplitN(xff, ",", 2)[0])

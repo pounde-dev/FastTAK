@@ -2,6 +2,19 @@
 
 Significant architectural and design decisions, with reasoning. Newest first.
 
+## DD-057: Caddy strips identity and credential headers around forward_auth
+
+**Date:** 2026-11-04
+**Status:** Decided
+
+**Decision:** Each `forward_auth` route removes `Remote-User` and `Remote-Groups` from the client's request before calling ldap-proxy, and removes `Authorization` before calling the backend. The Caddy image is pinned by version and digest, at 2.11.2 or later. `/auth/verify` returns 503 when it cannot read a user's groups.
+
+**Why:** `copy_headers` only overwrites a header that ldap-proxy returned with a value. Before Caddy 2.11.2, an empty `Remote-Groups` left the client's copy in place, so a user with no groups could send `Remote-Groups: monitor_admin` and reach the monitor as an admin. Removing the headers first holds whatever Caddy version runs. Basic auth also sends the LDAP password on every request, and neither backend uses it, so leaving it in place gave any flow author the passwords of everyone who opened Node-RED.
+
+**Alternatives considered:**
+- Pinning Caddy alone: rejected, because the guarantee would then rest on an upstream fix with no check in this repo.
+- Not returning `Remote-Groups` for a user with no groups: rejected, because a lookup failure and an empty membership still could not be told apart.
+
 ## DD-056: MediaMTX has no anonymous access
 
 **Date:** 2026-09-28
@@ -863,7 +876,7 @@ Failures-only counting restores the intended semantics: brute-force attempts (wh
 **Date:** 2026-04-18
 **Status:** Decided
 
-**Decision:** `ldap-proxy` rate-limits requests to `/auth/verify`: default 10 attempts per 5 minutes per source IP, 15-minute lockout on exceed. Keyed on `X-Forwarded-For` (Caddy is the only upstream that reaches ldap-proxy on the Docker network, so the header is trusted) with fallback to `RemoteAddr`. Returns HTTP 429 with `Retry-After` header on rejection. Rule applies unconditionally — no `DEPLOY_MODE` branching. Configurable via `LDAP_RATE_LIMIT_WINDOW`, `LDAP_RATE_LIMIT_MAX_ATTEMPTS`, `LDAP_RATE_LIMIT_LOCKOUT` env vars.
+**Decision:** `ldap-proxy` rate-limits requests to `/auth/verify`: default 10 attempts per 5 minutes per source IP, 15-minute lockout on exceed. Keyed on `X-Forwarded-For` with fallback to `RemoteAddr`. Caddy's `forward_auth` blocks set no `trusted_proxies`, so Caddy replaces the header with the address it saw; with `trusted_proxies private_ranges`, a client on a LAN, a VPN or Docker Desktop could send a new address with every guess and never be locked out (#62). A deployment behind a load balancer sees the balancer's address for every client and needs its own `trusted_proxies` entry for that balancer. Returns HTTP 429 with `Retry-After` header on rejection. Rule applies unconditionally — no `DEPLOY_MODE` branching. Configurable via `LDAP_RATE_LIMIT_WINDOW`, `LDAP_RATE_LIMIT_MAX_ATTEMPTS`, `LDAP_RATE_LIMIT_LOCKOUT` env vars.
 
 **Why:** Without a rate limit, an attacker with network reach to `/auth/verify` can brute-force passwords or enumerate usernames at line speed. Caddy's forward_auth makes this endpoint reachable from the public internet on every protected subdomain (portal, monitor, Node-RED). Defense in depth: LDAP auth must resist brute force regardless of whether the specific endpoint is "supposed to" be reachable.
 
